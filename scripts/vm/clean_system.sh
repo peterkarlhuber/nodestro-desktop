@@ -6,7 +6,12 @@
 set -euo pipefail
 mapfile -t pkgs < <(dpkg-query -W -f='${Package}\n' 'python3*' 'libpython3*' bubblewrap 2>/dev/null || true)
 if [ "${#pkgs[@]}" -gt 0 ]; then
-  sudo dpkg --purge --force-depends "${pkgs[@]}" >/dev/null 2>&1
+  # Maintainer scripts of some packages fail once Python is gone; the check below decides, not dpkg's status.
+  # shellcheck disable=SC2024 # the log belongs to this user on purpose
+  if ! sudo dpkg --purge --force-depends "${pkgs[@]}" >"$HOME/dpkg-purge.log" 2>&1; then
+    echo "dpkg reported errors (continuing; the check below decides):"
+    grep -iE "error|warning" "$HOME/dpkg-purge.log" | tail -15 || true
+  fi
 fi
 echo "removed ${#pkgs[@]} packages: ${pkgs[*]}"
 clean=1
