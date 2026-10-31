@@ -59,7 +59,7 @@ jobs:
       - name: Remove Python from the machine (cloud images ship it for cloud-init)
         run: |
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint \
-            'sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "python3*" "libpython3*" >/dev/null 2>&1; dpkg -l | grep -c "^ii  python3" || true'
+            'sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y -q python3-minimal libpython3-stdlib 2>&1 | tail -3; ! command -v python3'
       - name: Security probes and compatibility checks (normal user, bundled interpreter only)
         run: |
           scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester "$RUNNER_TEMP/probe-bundle.tar.gz" probe-bundle.tar.gz
