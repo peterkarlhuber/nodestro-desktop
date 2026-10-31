@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Write the release manifest and checksums of a Nodestro product build (plan M6).
 
-    scripts/release_manifest.py --product nodestro-desktop --version v0.3.0 --out DIR \
-        --studio-meta DIR [--python PATH] [--cargo-manifest PATH] ARTIFACT...
+    scripts/release_manifest.py --product NAME --version v0.3.0 --out DIR --studio-meta DIR \
+        [--commit SHA] [--python PATH] [--cargo-manifest PATH] [--image REF@sha256:DIGEST] [ARTIFACT...]
 
 The manifest (``DIR/release-manifest.json``) records:
 
 - the product commit and the studio commit it was built from, and every component pin of that studio
   (``platform/versions.json``);
-- each artifact's file name, size and SHA-256 (also written to ``DIR/SHA256SUMS``);
+- each artifact's file name, size and SHA-256 (also written to ``DIR/SHA256SUMS``), and each image with its digest;
 - the license inventory: the Python distributions in the bundled interpreter, the npm packages built into the studio
   interface (``package-lock.json``), and the Rust crates of the shell (``cargo metadata``). Packages without a
   declared license are listed under ``licenses.unknown``, so a release reviewer sees them;
@@ -23,9 +23,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 # Runs inside the bundled interpreter: name, version and declared license of every installed distribution.
@@ -76,7 +76,9 @@ def npm_inventory(lock_file: Path) -> list[dict[str, str]]:
         if not path or entry.get("dev") or entry.get("devOptional"):
             continue
         name = entry.get("name") or path.rsplit("node_modules/", 1)[-1]
-        rows.append({"ecosystem": "npm", "name": name, "version": entry.get("version", ""), "license": entry.get("license", "")})
+        rows.append(
+            {"ecosystem": "npm", "name": name, "version": entry.get("version", ""), "license": entry.get("license", "")}
+        )
     return rows
 
 
@@ -115,11 +117,12 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "product": args.product,
         "version": args.version,
-        "commit": git_commit(repository),
+        "commit": args.commit or git_commit(repository),
         "studio": studio_commit,
         "platform": versions.get("platform"),
         "components": {name: entry["commit"] for name, entry in versions.get("components", {}).items()},
         "artifacts": artifacts,
+        "images": args.image,
         "platforms": args.platform,
         "signing": {
             "status": "unsigned",
@@ -137,19 +140,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--product", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--out", required=True, type=Path)
-    parser.add_argument("--studio-meta", required=True, help="directory with versions.json, studio-commit, package-lock.json")
+    parser.add_argument(
+        "--studio-meta", required=True, help="directory with versions.json, studio-commit, package-lock.json"
+    )
     parser.add_argument("--python", help="the bundled interpreter, for the Python license inventory")
     parser.add_argument("--cargo-manifest", help="Cargo.toml of the shell, for the Rust license inventory")
     parser.add_argument("--platform", action="append", default=[], help="a platform this release was tested on")
-    parser.add_argument("artifacts", nargs="+")
+    parser.add_argument("--commit", help="the product commit (default: git rev-parse HEAD of this repository)")
+    parser.add_argument("--image", action="append", default=[], help="a published image as REF@sha256:DIGEST")
+    parser.add_argument("artifacts", nargs="*")
     args = parser.parse_args(argv)
     manifest = build_manifest(args)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    if not manifest["artifacts"] and not args.image:
+        parser.error("name at least one artifact or image")
     sums = "".join(f"{a['sha256']}  {a['name']}\n" for a in manifest["artifacts"])
     (args.out / "SHA256SUMS").write_text(sums, encoding="utf-8")
     print(
-        f"{args.product} {args.version}: {len(manifest['artifacts'])} artifact(s), "
+        f"{args.product} {args.version}: {len(manifest['artifacts'])} artifact(s), {len(args.image)} image(s), "
         f"{len(manifest['licenses']['packages'])} packages, {len(manifest['licenses']['unknown'])} without a license"
     )
     return 0
