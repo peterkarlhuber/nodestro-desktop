@@ -56,6 +56,18 @@ jobs:
           if failed:
               sys.exit(f"::error::run {run['id']} is not a passed release candidate on master: {failed}")
           PY
+          # Candidates built before the built-in sandbox was validated were withdrawn (2026-10-31 NO-GO); a candidate
+          # must also have passed the tests of the packaged app on the real systems (systems.yml).
+          case "$RUN" in 41212112554|41212693919) echo "::error::run $RUN is a withdrawn candidate"; exit 1 ;; esac
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/jobs?per_page=100" > jobs.json
+          python3 - <<'PY'
+          import json, sys
+          jobs = {j["name"]: j["conclusion"] for j in json.load(open("jobs.json"))["jobs"]}
+          need = [f"systems / system ({s})" for s in ("ubuntu-24.04", "debian-13")]
+          missing = [n for n in need if jobs.get(n) != "success"]
+          if missing:
+              sys.exit(f"::error::the candidate did not pass the tests on the real systems: {missing}")
+          PY
           sha=$(python3 -c 'import json; print(json.load(open("run.json"))["head_sha"])')
           status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...master" --jq .status)
           case "$status" in identical|ahead) ;; *) echo "::error::$sha is not on master ($status)"; exit 1 ;; esac
@@ -88,4 +100,4 @@ jobs:
         run: |
           gh release create "$VERSION" release/* --repo "$GITHUB_REPOSITORY" --draft --prerelease --target "$SHA" \
             --title "Nodestro Desktop $VERSION (Linux x86_64, unsigned preview)" \
-            --notes "Unsigned preview build, not for production data. Linux x86_64 only: glibc 2.39 or newer and WebKitGTK 4.1 (see README.md, System requirements). Verify the archive with sha256sum -c SHA256SUMS. Built and smoke-tested in candidate run $RUN. Component pins, license inventory and signing state are in release-manifest.json. macOS and Windows are not built or tested."
+            --notes "Unsigned preview build, not for production data. Linux x86_64 only: glibc 2.39 or newer and WebKitGTK 4.1 (see README.md, System requirements). AI-generated tools run in the built-in Linux sandbox, validated on Ubuntu 24.04 and Debian 13 only; elsewhere they are blocked unless Docker is available. Verify the archive with sha256sum -c SHA256SUMS. Built, smoke-tested and tested on real Ubuntu 24.04 and Debian 13 machines in candidate run $RUN. Component pins, license inventory and signing state are in release-manifest.json. macOS and Windows are not built or tested."
