@@ -28,6 +28,14 @@ signed builds and no installer. `spike/` holds the packaging spike (plan PR-5) a
 4. Closing the window stops the backend with SIGINT (the application shuts down cleanly), killed after 10 s. If the
    backend ends on its own, the window says so and names the log file.
 
+**Tokens of connected MCP services** are sealed with a key from the operating system's keychain (ADR-0007 D-3; Secret
+Service such as GNOME Keyring or KWallet on Linux). The first start creates the key (32 random bytes, entry
+"Nodestro" / `mcp-token-vault-key`); the shell hands it to the backend as `NODESTRO_VAULT_KEY` in its environment,
+never on the command line, in a file or in a log (`app/src/vault.rs`). Without a usable keychain within 15 s (none
+running, access refused, an unlock prompt left open) the backend gets no key and keeps tokens for the current session
+only; there is no plain-text fallback. A `NODESTRO_VAULT_KEY` set by the operator takes precedence. If the keychain
+entry is deleted, stored tokens become unreadable and have to be entered again.
+
 Data stays in `~/.nodestro` (or `NODESTRO_DATA_DIR`), shared with the `nodestro` command; only one of them can use a
 data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`.
 
@@ -73,6 +81,8 @@ Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is reloc
   environment, but the secret is useless once the window has used it.
 - A process of the same OS user can still read the data directory itself; the launch secret protects the API, not
   the files.
+- The keychain key, like the launch secret, reaches the backend through its environment, which processes of the same
+  OS user can read; it is not stored next to the sealed tokens in the data directory.
 
 ## Build
 
