@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "No Tauri commands: neither the start page nor the studio (a remote origin) may call into the shell.",
+  "windows": ["main"],
+  "permissions": []
+}
