@@ -80,3 +80,11 @@ jobs:
           name: nodestro-linux-x86_64
           path: nodestro-linux-x86_64.tar.gz
           retention-days: 7
+
+  # The archive from the app job on real Ubuntu 24.04 and Debian 13 machines: built-in sandbox and window.
+  systems:
+    needs: app
+    uses: ./.github/workflows/systems.yml
+    with:
+      artifact: nodestro-linux-x86_64
+      archive: nodestro-linux-x86_64.tar.gz

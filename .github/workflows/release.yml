@@ -74,3 +74,11 @@ jobs:
           name: release-candidate
           path: release/
           retention-days: 30
+
+  # The candidate archive (checked against its SHA256SUMS) on real Ubuntu 24.04 and Debian 13 machines.
+  systems:
+    needs: candidate
+    uses: ./.github/workflows/systems.yml
+    with:
+      artifact: release-candidate
+      archive: nodestro-desktop-*-linux-x86_64.tar.gz

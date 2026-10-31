@@ -2,6 +2,7 @@
 # Print the kernel features the built-in sandbox depends on, as seen by the user running this script.
 set -u
 echo "== system"
+# shellcheck disable=SC1091
 . /etc/os-release && echo "os: $PRETTY_NAME"
 echo "kernel: $(uname -r)"
 echo "user: $(id)"
@@ -12,7 +13,7 @@ for s in kernel.unprivileged_userns_clone kernel.apparmor_restrict_unprivileged_
   printf '%s = %s\n' "$s" "$(cat /proc/sys/${s//.//} 2>/dev/null || echo absent)"
 done
 echo "seccomp: $(grep -E '^Seccomp' /proc/self/status | tr '\n' ' ')"
-echo "cgroup: $(stat -fc %T /sys/fs/cgroup) delegated=$(cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers 2>/dev/null || echo none)"
+echo "cgroup: $(stat -fc %T /sys/fs/cgroup) delegated=$(cat /sys/fs/cgroup/user.slice/user-"$(id -u)".slice/user@"$(id -u)".service/cgroup.controllers 2>/dev/null || echo none)"
 if command -v python3 >/dev/null; then
   python3 - <<'PY'
 import ctypes
@@ -32,4 +33,4 @@ for b in /usr/bin/bwrap "$HOME/bwrap-copy"; do
 done
 echo "unshare -Ur: $(unshare -Ur id -u 2>&1)"
 echo "== apparmor"
-ls /etc/apparmor.d 2>/dev/null | grep -E -i 'bwrap|userns|webkit|flatpak' | tr '\n' ' '; echo
+for f in /etc/apparmor.d/*; do case "${f,,}" in *bwrap*|*userns*|*webkit*|*flatpak*) printf '%s ' "${f##*/}" ;; esac; done; echo

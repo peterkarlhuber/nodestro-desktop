@@ -1,0 +1,122 @@
+name: Packaged app on real systems
+
+# The packaged desktop app (the archive CI or the release candidate built) on real Linux distributions: each system is
+# its official cloud image booted in a KVM virtual machine (own kernel, AppArmor as shipped). The machine is made a
+# clean base first (no Python, Node.js, Rust, Docker or bubblewrap); every test runs as a normal user without sudo.
+#   1. sandbox: the built-in sandbox's security probes and compatibility checks with the app's own interpreter;
+#   2. gui: the app in a virtual X display (WebKitGTK installed the way the README says; it brings bubblewrap along,
+#      which WebKit uses for its own web processes and Nodestro does not);
+#   3. gnome: the app in a headless GNOME Shell Wayland session (an attempt; its result is reported, see the step).
+on:
+  workflow_call:
+    inputs:
+      artifact:
+        description: Name of the workflow artifact that holds the archive
+        required: true
+        type: string
+      archive:
+        description: Glob of the archive inside that artifact
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  system:
+    strategy:
+      fail-fast: false
+      matrix:
+        system: [ubuntu-24.04, debian-13]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact }}
+          path: ${{ runner.temp }}/artifact
+      - name: Pick the archive (and check it against SHA256SUMS when the artifact has one)
+        env:
+          ARCHIVE: ${{ inputs.archive }}
+        run: |
+          cd "$RUNNER_TEMP/artifact"
+          if [ -f SHA256SUMS ]; then sha256sum -c SHA256SUMS; fi
+          # shellcheck disable=SC2086 # the glob is meant to expand
+          set -- $ARCHIVE
+          [ "$#" = 1 ] && [ -f "$1" ] || { echo "::error::expected one archive matching $ARCHIVE"; ls -la; exit 1; }
+          cp "$1" "$RUNNER_TEMP/nodestro-linux-x86_64.tar.gz"
+          sha256sum "$1"
+      - name: Test wheels (offline package set for the compiled-library check; pip only fills the test environment)
+        run: |
+          w="$RUNNER_TEMP/test-wheels"
+          plat=(--only-binary=:all: --implementation cp --python-version 3.13 --platform manylinux_2_28_x86_64
+            --platform manylinux_2_17_x86_64 --platform manylinux2014_x86_64 --platform any)
+          python3 -m pip download --quiet "${plat[@]}" --no-deps --require-hashes -r scripts/vm/compiled-library.txt -d "$w"
+          python3 -m pip download --quiet "${plat[@]}" -d "$w" pydantic typing-extensions
+          python3 -m pip download --quiet --only-binary=:all: --no-deps -d "$w" pip
+          cp scripts/vm/compiled-library.txt "$w/"
+          ls "$w"
+      - name: Prepare KVM
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Boot ${{ matrix.system }}
+        run: scripts/vm/vm.sh boot ${{ matrix.system }} "$RUNNER_TEMP/vm"
+      - name: Kernel features as a normal user
+        run: |
+          scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester scripts/vm/probe_kernel.sh probe_kernel.sh
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash probe_kernel.sh'
+      - name: Clean base system (no Python, Node.js, Rust, Docker, bubblewrap)
+        run: |
+          scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" maint scripts/vm/clean_system.sh clean_system.sh
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'bash clean_system.sh'
+      - name: Built-in sandbox with the packaged app's interpreter (normal user)
+        run: |
+          for f in "$RUNNER_TEMP/nodestro-linux-x86_64.tar.gz" "$RUNNER_TEMP/test-wheels" scripts/vm/test_package.sh scripts/smoke_inside.sh; do
+            scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester "$f" .
+          done
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh sandbox'
+      - name: Install the app's system requirement (WebKitGTK 4.1) and a virtual display
+        run: |
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint \
+            'sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth curl procps >/dev/null && echo "bubblewrap (WebKit dependency): $(command -v bwrap || echo none)"; ! command -v python3'
+      - name: Packaged app in a virtual X display (normal user)
+        run: scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh gui'
+      # GNOME Shell's headless mode gives a real GNOME Wayland session without a screen. A failure here is reported
+      # in the job summary and does not hide the other results; it is not counted as a passed desktop-session test.
+      - name: Packaged app in a GNOME Shell session (attempt)
+        id: gnome
+        continue-on-error: true
+        run: |
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint \
+            'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends gnome-shell dbus-user-session >/dev/null; ! command -v python3 || echo "note: python3 came with GNOME Shell"'
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh gnome'
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.system }}"
+            echo "- GNOME Shell session: ${{ steps.gnome.outcome }}"
+          } >>"$GITHUB_STEP_SUMMARY"
+      - name: Fetch the reports
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/report"
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat probes.json' >"$RUNNER_TEMP/report/probes.json" || true
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat app.out' >"$RUNNER_TEMP/report/app.out" || true
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat gnome-shell.log' >"$RUNNER_TEMP/report/gnome-shell.log" || true
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat .local/share/org.nodestro.desktop/logs/backend.log' >"$RUNNER_TEMP/report/backend.log" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: systems-${{ matrix.system }}
+          path: ${{ runner.temp }}/report/
+          retention-days: 30
+      - name: Stop
+        if: always()
+        run: scripts/vm/vm.sh stop "$RUNNER_TEMP/vm"

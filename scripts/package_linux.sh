@@ -42,7 +42,10 @@ Start: ./nodestro-desktop
 Needs: Linux x86_64 with glibc 2.39 or newer (tested: Ubuntu 24.04, Debian 13), a graphical session,
 and WebKitGTK 4.1 (Ubuntu/Debian: sudo apt install libwebkit2gtk-4.1-0).
 Data: ~/.nodestro (or NODESTRO_DATA_DIR); backend log: ~/.local/share/org.nodestro.desktop/logs/backend.log
-AI-generated tools run only with Docker; see the user documentation, chapter "Tools".
+AI-generated tools run in the built-in Linux sandbox (Landlock and seccomp; needs Linux 6.7 or newer with
+Landlock enabled and a normal user, not root; tested on Ubuntu 24.04 and Debian 13). Nothing else to install.
+On other systems AI-generated tools are blocked unless Docker is available; they never run unprotected.
+See the user documentation, chapter "Tools".
 TEXT
 tar -C "$stage" -czf "$archive" nodestro
 du -h "$archive"

@@ -4,7 +4,10 @@ set -euo pipefail
 if [ "${1:-}" = as-user ]; then
   cd ~
   start=$(date +%s)
-  NODESTRO_DESKTOP_QUIT_AFTER_MS=20000 xvfb-run -a /opt/nodestro/nodestro-desktop >app.out 2>&1 &
+  # NODESTRO_APP and NODESTRO_SMOKE_DISPLAY (xvfb or wayland: an existing Wayland session) let the VM tests reuse this.
+  launcher=(xvfb-run -a)
+  if [ "${NODESTRO_SMOKE_DISPLAY:-xvfb}" = wayland ]; then launcher=(); fi
+  NODESTRO_DESKTOP_QUIT_AFTER_MS=20000 "${launcher[@]}" "${NODESTRO_APP:-/opt/nodestro/nodestro-desktop}" >app.out 2>&1 &
   app=$!
   log=~/.local/share/org.nodestro.desktop/logs/backend.log
   until grep -q "backend ready on port" app.out 2>/dev/null; do
