@@ -20,6 +20,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - run: python3 -m py_compile scripts/release_manifest.py
       - run: node --check app/ui/start.js && node --check spike/electron/main.js
       - name: studio.json names a full commit
         run: python3 -c 'import json,re; assert re.fullmatch(r"[0-9a-f]{40}", json.load(open("studio.json"))["nodestro-studio"])'
@@ -59,6 +60,14 @@ jobs:
         run: scripts/package_linux.sh app/target/release/nodestro-desktop "$RUNNER_TEMP/backend" nodestro-linux-x86_64.tar.gz
       - name: Smoke test on a clean Ubuntu 24.04 container
         run: scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz
+      # The release manifest and license inventory are built on every change, so a release never meets them first.
+      - name: Release manifest (dry run)
+        run: |
+          python3 scripts/release_manifest.py --product nodestro-desktop --version "ci-${GITHUB_SHA::12}" \
+            --out "$RUNNER_TEMP/release" --studio-meta "$RUNNER_TEMP/backend/meta" \
+            --python "$RUNNER_TEMP/backend/python/bin/python3" --cargo-manifest app/Cargo.toml \
+            --platform linux-x86_64 nodestro-linux-x86_64.tar.gz
+          python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print("unknown licenses:", m["licenses"]["unknown"])' "$RUNNER_TEMP/release/release-manifest.json"
       - uses: actions/upload-artifact@v7
         with:
           name: nodestro-linux-x86_64

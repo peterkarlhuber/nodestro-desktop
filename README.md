@@ -51,6 +51,26 @@ scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz   # needs Docker
 
 For development, `NODESTRO_BACKEND=<path of a nodestro command>` replaces the bundled backend.
 
+## Releases
+
+A tag `v*` runs `.github/workflows/release.yml`. It builds and smoke-tests the archive as CI does, then writes
+`release-manifest.json` and `SHA256SUMS` with `scripts/release_manifest.py`. The manifest holds:
+
+- the desktop and studio commits;
+- every component pin;
+- checksums;
+- the license inventory of the bundled Python packages, the studio's npm packages and the shell's Rust crates;
+- the signing state.
+
+The workflow then creates a **draft** GitHub release. Publishing it is a person's decision. A manual run of the
+workflow builds the same files without creating a release. CI writes the manifest on every change (dry run).
+
+Builds are **not signed**: no signing certificate is configured, and the manifest says so. Verify the archive with
+`sha256sum -c SHA256SUMS`. Update: unpack the new archive in place of the old one; the data directory stays where it
+is, and migrations back it up first. Rollback: unpack the previous archive. A data directory that a newer version
+already migrated is refused by an older one (`backup.schema_too_new`); restore the pre-migration backup from
+`~/.nodestro/backups/` in that case.
+
 ## License
 
 MIT, see `LICENSE`.
