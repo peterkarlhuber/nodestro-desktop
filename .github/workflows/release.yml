@@ -1,29 +1,43 @@
-name: Release
+name: Release candidate
 
-# A tag `v*` builds the Linux x86_64 archive exactly as CI does. It then runs the clean-machine smoke test, writes
-# the release manifest (component pins, checksums, license inventory, signing state) and creates a **draft**
-# GitHub release. A person reviews the draft and publishes it. A manual run builds the same files without a release.
+# Builds and checks a release candidate. It never publishes anything: no tag, no GitHub release, and its token can
+# only read. A person starts it with the version, which must equal the shell's version in app/Cargo.toml. It builds
+# the Linux x86_64 archive exactly as CI does, runs the clean-machine smoke test, scans the archive for secrets and
+# writes the manifest and checksums. Everything goes into the run's `release-candidate` artifact. Publishing is a
+# separate, manual step: publish.yml with this run's ID.
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, for example v0.2.0-preview.1"
+        required: true
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  candidate:
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Check the version
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::not a version: $VERSION"; exit 1; }
+          shell=$(sed -n 's/^version = "\(.*\)"$/\1/p' app/Cargo.toml | head -n 1)
+          [ "v$shell" = "$VERSION" ] || { echo "::error::app/Cargo.toml says $shell, not ${VERSION#v}"; exit 1; }
+      - run: python3 -I scripts/test_scan_secrets.py
       - name: System libraries of the Tauri shell (WebKitGTK 4.1)
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev libxdo-dev
       - working-directory: app
-        run: cargo build --locked --release
+        run: |
+          cargo test --locked
+          cargo build --locked --release
       - name: Grant read access to the private repositories
         env:
           NODESTRO_READ: ${{ secrets.NODESTRO_READ }}
@@ -38,39 +52,25 @@ jobs:
         with:
           node-version: 22
       - run: scripts/build_backend.sh "$RUNNER_TEMP/backend"
-      - run: scripts/package_linux.sh app/target/release/nodestro-desktop "$RUNNER_TEMP/backend" nodestro-linux-x86_64.tar.gz
-      - run: scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz
+      - name: Package
+        run: |
+          mkdir -p release
+          scripts/package_linux.sh app/target/release/nodestro-desktop "$RUNNER_TEMP/backend" \
+            "release/nodestro-desktop-${VERSION}-linux-x86_64.tar.gz" "$VERSION"
+      - run: scripts/smoke_test.sh "release/nodestro-desktop-${VERSION}-linux-x86_64.tar.gz"
       - name: Release manifest and checksums
         run: |
-          version="${GITHUB_REF_NAME}"
-          [ "$GITHUB_REF_TYPE" = tag ] || version="manual-${GITHUB_SHA::12}"
-          python3 scripts/release_manifest.py --product nodestro-desktop --version "$version" \
+          python3 scripts/release_manifest.py --product nodestro-desktop --version "$VERSION" \
             --out release --studio-meta "$RUNNER_TEMP/backend/meta" \
             --python "$RUNNER_TEMP/backend/python/bin/python3" --cargo-manifest app/Cargo.toml \
-            --platform linux-x86_64 nodestro-linux-x86_64.tar.gz
-          cp nodestro-linux-x86_64.tar.gz release/
+            --platform linux-x86_64 "release/nodestro-desktop-${VERSION}-linux-x86_64.tar.gz"
+          python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["version"], m["channel"], "unknown licenses:", m["licenses"]["unknown"])' release/release-manifest.json
+      - name: Scan the release files for secrets
+        env:
+          NODESTRO_SCAN_SECRETS: ${{ secrets.NODESTRO_READ }}
+        run: python3 -I scripts/scan_secrets.py release
       - uses: actions/upload-artifact@v7
         with:
-          name: release
+          name: release-candidate
           path: release/
           retention-days: 30
-
-  draft:
-    # Only a tag creates a release, and only as a draft: publishing stays a person's decision.
-    if: github.ref_type == 'tag'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: release
-          path: release
-      - name: Create the draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --draft \
-            --title "Nodestro Desktop $GITHUB_REF_NAME (Linux x86_64, unsigned)" \
-            --notes "Linux x86_64 only. Not signed: verify the archive against SHA256SUMS. Component pins, license inventory and signing state are in release-manifest.json. macOS and Windows are not built or tested."

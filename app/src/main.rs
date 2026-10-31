@@ -133,7 +133,8 @@ fn main() {
         .setup(move |app| {
             let watched = navigation_state.clone();
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Nodestro")
+                // The version names a preview build as such (0.2.0-preview.1).
+                .title(concat!("Nodestro ", env!("CARGO_PKG_VERSION")))
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 560.0)
                 .on_navigation(move |url| {
