@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::vault::VAULT_KEY_ENV;
+
 /// Overrides the backend command (development, tests): the path of a `nodestro` executable.
 pub const BACKEND_ENV: &str = "NODESTRO_BACKEND";
 /// The variable through which the backend receives the per-launch secret (`nodestro_api.launch`).
@@ -97,8 +99,15 @@ pub struct Backend {
 }
 
 impl Backend {
-    /// Start `command` on `port` with a new secret; its output goes to `log`.
-    pub fn start(command: &Launcher, port: u16, data_dir: Option<String>, log: &Path) -> Result<Backend, StartError> {
+    /// Start `command` on `port` with a new secret; its output goes to `log`. `vault_key` seals MCP tokens
+    /// (`NODESTRO_VAULT_KEY`, see `vault`); without it the backend keeps them for the session only.
+    pub fn start(
+        command: &Launcher,
+        port: u16,
+        data_dir: Option<String>,
+        vault_key: Option<&str>,
+        log: &Path,
+    ) -> Result<Backend, StartError> {
         let secret = new_secret();
         if let Some(parent) = log.parent() {
             let _ = fs::create_dir_all(parent);
@@ -121,7 +130,12 @@ impl Backend {
         if let Some(dir) = data_dir.filter(|value| !value.is_empty()) {
             args.extend(["--data-dir".to_string(), dir]);
         }
-        let child = Command::new(&command.program)
+        let mut process = Command::new(&command.program);
+        match vault_key {
+            Some(key) => process.env(VAULT_KEY_ENV, key),
+            None => process.env_remove(VAULT_KEY_ENV),
+        };
+        let child = process
             .args(&args)
             // Passed in the environment, never on the command line (visible to every user in the process list).
             .env(SECRET_ENV, &secret)
@@ -260,10 +274,15 @@ mod tests {
     #[test]
     fn a_missing_backend_is_reported() {
         let log = std::env::temp_dir().join(format!("nodestro-desktop-test-{}.log", std::process::id()));
-        let error =
-            Backend::start(&backend_command(Path::new("/x"), Some("/nonexistent/nodestro".into())), 1, None, &log)
-                .err()
-                .unwrap();
+        let error = Backend::start(
+            &backend_command(Path::new("/x"), Some("/nonexistent/nodestro".into())),
+            1,
+            None,
+            None,
+            &log,
+        )
+        .err()
+        .unwrap();
         assert!(matches!(error, StartError::Missing(_)));
         let _ = fs::remove_file(log);
     }
@@ -275,7 +294,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let script = dir.join("nodestro");
         // Records its arguments and whether the secret arrived, then fails.
-        fs::write(&script, "#!/bin/sh\necho \"args=$*\"\necho \"secret=${#NODESTRO_LAUNCH_SECRET}\"\nexit 3\n")
+        fs::write(&script, "#!/bin/sh\necho \"args=$*\"\necho \"secret=${#NODESTRO_LAUNCH_SECRET}\"\necho \"vault=${#NODESTRO_VAULT_KEY}\"\nexit 3\n")
             .unwrap();
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
@@ -284,6 +303,7 @@ mod tests {
             &backend_command(Path::new("/x"), Some(script.display().to_string())),
             free_port().unwrap(),
             Some("/tmp/data".into()),
+            Some(&"k".repeat(44)),
             &log,
         )
         .unwrap();
@@ -292,6 +312,8 @@ mod tests {
         assert!(written.contains("--host 127.0.0.1"));
         assert!(written.contains("--data-dir /tmp/data"));
         assert!(written.contains("secret=64"));
+        assert!(written.contains("vault=44"));
+        assert!(!written.contains(&"k".repeat(44)));
         assert!(!written.contains(&backend.secret));
         assert!(backend.launch_url().ends_with(&backend.secret));
         let _ = fs::remove_dir_all(dir);

@@ -10,6 +10,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend;
+mod vault;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,6 +62,28 @@ fn log_file(app: &tauri::AppHandle) -> PathBuf {
     app.path().app_log_dir().unwrap_or_else(|_| std::env::temp_dir().join("nodestro-desktop")).join("backend.log")
 }
 
+/// How long the keychain may take (an unlock prompt nobody answers must not keep the backend from starting).
+const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The MCP token vault key: the operator's `NODESTRO_VAULT_KEY` if set, otherwise the keychain's (created on first
+/// use). `None` (tokens kept for the session only) when the keychain cannot be used in time.
+fn vault_key() -> Option<String> {
+    if let Some(key) = std::env::var(vault::VAULT_KEY_ENV).ok().filter(|key| !key.trim().is_empty()) {
+        return Some(key);
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(vault::vault_key(&vault::SystemKeychain));
+    });
+    let reason = match receiver.recv_timeout(KEYCHAIN_TIMEOUT) {
+        Ok(Ok(key)) => return Some(key),
+        Ok(Err(reason)) => reason,
+        Err(_) => "no answer in time".to_string(),
+    };
+    eprintln!("nodestro-desktop: keychain not usable ({reason}); MCP tokens are kept for the session only");
+    None
+}
+
 /// Start the backend, wait for it, open the launch URL; then watch it until the app quits.
 fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
     let exe = std::env::current_exe().unwrap_or_default();
@@ -71,7 +94,8 @@ fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
         Ok(port) => port,
         Err(error) => return show_error(&window, "start_failed", &error.to_string(), &log),
     };
-    let running = match Backend::start(&command, port, data_dir, &log) {
+    let vault_key = vault_key();
+    let running = match Backend::start(&command, port, data_dir, vault_key.as_deref(), &log) {
         Ok(running) => running,
         Err(error) => return show_error(&window, "start_failed", &error.detail(), &log),
     };

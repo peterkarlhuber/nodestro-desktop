@@ -37,13 +37,20 @@ jobs:
       - name: System libraries of the Tauri shell (WebKitGTK 4.1)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev libxdo-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev libxdo-dev gnome-keyring dbus-x11
       - working-directory: app
         run: |
           cargo fmt --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
           cargo build --locked --release
+      - name: The MCP token vault key in a real keychain (Secret Service, unlocked gnome-keyring)
+        working-directory: app
+        run: |
+          dbus-run-session -- sh -ec '
+            eval "$(printf "ci\n" | gnome-keyring-daemon --unlock --components=secrets)"
+            cargo test --locked -- --ignored
+          '
       - name: Grant read access to the private repositories
         env:
           NODESTRO_READ: ${{ secrets.NODESTRO_READ }}
