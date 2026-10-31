@@ -30,9 +30,9 @@ jobs:
         run: scripts/vm/vm.sh boot ${{ matrix.system }} "$RUNNER_TEMP/vm"
       - name: Install the desktop's documented system packages
         run: |
-          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" admin \
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint \
             'sudo apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q libwebkit2gtk-4.1-0 libgtk-3-0 && apt-cache depends libwebkit2gtk-4.1-0 | grep -i bubble; dpkg -l bubblewrap | tail -1'
-          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" admin 'sudo install -o tester -m 755 /usr/bin/bwrap /home/tester/bwrap-copy'
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo install -o tester -m 755 /usr/bin/bwrap /home/tester/bwrap-copy'
       - name: Kernel features as a normal user
         run: |
           scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester scripts/vm/probe_kernel.sh probe_kernel.sh

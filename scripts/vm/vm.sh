@@ -2,12 +2,12 @@
 # Boot a real Linux distribution in a KVM virtual machine and run commands in it (sandbox system tests).
 #
 #   scripts/vm/vm.sh boot <system> <workdir>     download the cloud image, boot it, wait for SSH
-#   scripts/vm/vm.sh ssh <workdir> <user> CMD    run CMD in the machine as <user> ("admin" has sudo, "tester" not)
+#   scripts/vm/vm.sh ssh <workdir> <user> CMD    run CMD in the machine as <user> ("maint" has sudo, "tester" not)
 #   scripts/vm/vm.sh copy <workdir> <user> SRC DEST   copy a local file or directory into the machine
 #   scripts/vm/vm.sh stop <workdir>
 #
 # <system> is ubuntu-24.04 or debian-13. Each machine is the distribution's official cloud image with its own
-# kernel, AppArmor enabled as shipped, and two users created by cloud-init: "admin" (sudo, for preparing the system)
+# kernel, AppArmor enabled as shipped, and two users created by cloud-init: "maint" (sudo, for preparing the system)
 # and "tester" (a normal user without sudo, for every test). Needs qemu-system-x86, qemu-utils, cloud-image-utils
 # and /dev/kvm (GitHub's Linux runners have it).
 set -euo pipefail
@@ -39,7 +39,7 @@ case "$cmd" in
     cat >"$work/user-data" <<EOF
 #cloud-config
 users:
-  - name: admin
+  - name: maint
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     ssh_authorized_keys: ["$pub"]
@@ -57,7 +57,7 @@ EOF
     # shellcheck disable=SC2046
     for _ in $(seq 1 90); do
       if ssh $(ssh_opts "$work") tester@127.0.0.1 true 2>/dev/null \
-        && ssh $(ssh_opts "$work") admin@127.0.0.1 "cloud-init status --wait >/dev/null 2>&1; true"; then
+        && ssh $(ssh_opts "$work") maint@127.0.0.1 "cloud-init status --wait >/dev/null 2>&1; true"; then
         echo "$system is up"
         exit 0
       fi
