@@ -3,7 +3,8 @@ name: Release candidate
 # Builds and checks a release candidate. It never publishes anything: no tag, no GitHub release, and its token can
 # only read. A person starts it with the version, which must equal the shell's version in app/Cargo.toml. It builds
 # the Linux x86_64 archive exactly as CI does, runs the clean-machine smoke test, scans the archive for secrets and
-# writes the manifest and checksums. Everything goes into the run's `release-candidate` artifact. Publishing is a
+# writes the manifest and checksums. Everything goes into the run's `release-candidate` artifact, which systems.yml
+# then tests on real Ubuntu 24.04 and Debian 13 machines (built-in sandbox, window, GNOME Shell). Publishing is a
 # separate, manual step: publish.yml with this run's ID.
 on:
   workflow_dispatch:
