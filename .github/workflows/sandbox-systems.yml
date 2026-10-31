@@ -1,0 +1,44 @@
+name: Sandbox systems
+
+# Runs the built-in sandbox checks on real Linux distributions: each system is its official cloud image booted in a
+# KVM virtual machine (own kernel, AppArmor as shipped), tested as a normal user without sudo.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        system: [ubuntu-24.04, debian-13]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare KVM
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Boot ${{ matrix.system }}
+        run: scripts/vm/vm.sh boot ${{ matrix.system }} "$RUNNER_TEMP/vm"
+      - name: Install the desktop's documented system packages
+        run: |
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" admin \
+            'sudo apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q libwebkit2gtk-4.1-0 libgtk-3-0 && apt-cache depends libwebkit2gtk-4.1-0 | grep -i bubble; dpkg -l bubblewrap | tail -1'
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" admin 'sudo install -o tester -m 755 /usr/bin/bwrap /home/tester/bwrap-copy'
+      - name: Kernel features as a normal user
+        run: |
+          scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester scripts/vm/probe_kernel.sh probe_kernel.sh
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash probe_kernel.sh'
+      - name: Kernel features of the runner (for comparison)
+        run: bash scripts/vm/probe_kernel.sh
+      - name: Stop
+        if: always()
+        run: scripts/vm/vm.sh stop "$RUNNER_TEMP/vm"
