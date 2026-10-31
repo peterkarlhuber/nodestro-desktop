@@ -8,7 +8,8 @@
 # 2. The studio is checked out, its interface is built (Node.js is a build-time tool only), and its wheel
 #    is installed into that interpreter. pip clones the private component repositories, so the build
 #    needs read access (in CI: the NODESTRO_READ secret, never printed). Nothing is fetched at run time.
-# 3. pip, build tools and caches are removed. The app starts `python/bin/python3 -I -m nodestro_studio`,
+# 3. The studio commit, its versions.json and package-lock.json go to <output-dir>/meta for the release manifest.
+# 4. pip, build tools and caches are removed. The app starts `python/bin/python3 -I -m nodestro_studio`,
 #    never the generated `nodestro` script (it names the interpreter by its build-time path).
 set -euo pipefail
 out=$1
@@ -30,6 +31,10 @@ else
   git clone --quiet --filter=blob:none https://github.com/peterkarlhuber/nodestro-studio.git "$work"
   git -C "$work" checkout --quiet "$source_ref"
 fi
+# Release metadata (not shipped in the archive): the studio commit, its component pins and its npm lock file.
+mkdir -p "$out/meta"
+if [ -d "$source_ref" ]; then git -C "$source_ref" rev-parse HEAD >"$out/meta/studio-commit"; else git -C "$work" rev-parse HEAD >"$out/meta/studio-commit"; fi
+cp "$work/platform/versions.json" "$work/frontend/package-lock.json" "$out/meta/"
 (cd "$work/frontend" && npm ci --silent && npm run build --silent >/dev/null)
 "$out/python/bin/python3" -m pip install --quiet --root-user-action=ignore build
 "$out/python/bin/python3" -m build --wheel --outdir "$work/dist" "$work" >/dev/null
