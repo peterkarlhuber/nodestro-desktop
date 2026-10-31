@@ -1,44 +1,80 @@
 name: Sandbox systems
 
-# Runs the built-in sandbox checks on real Linux distributions: each system is its official cloud image booted in a
-# KVM virtual machine (own kernel, AppArmor as shipped), tested as a normal user without sudo.
+# The built-in sandbox on real Linux distributions: each system is its official cloud image booted in a KVM virtual
+# machine (own kernel, AppArmor as shipped), tested as a normal user without sudo, without Python, Node.js, Rust,
+# Docker or Bubblewrap on the machine (removed or absent before the tests; the step prints what is on the PATH).
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      runtime_ref:
+        description: nodestro-runtime branch, tag or commit to test
+        required: false
 
 permissions:
   contents: read
 
+env:
+  RUNTIME_REF: ${{ inputs.runtime_ref || 'claude/project-thread-qzslv1' }}
+
 jobs:
-  probe:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install uv
+      - run: scripts/vm/build_probe_bundle.sh "$RUNTIME_REF" "$RUNNER_TEMP/probe-bundle"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-bundle
+          path: ${{ runner.temp }}/probe-bundle.tar.gz
+          retention-days: 7
+
+  probes:
+    needs: bundle
     strategy:
       fail-fast: false
       matrix:
         system: [ubuntu-24.04, debian-13]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: probe-bundle
+          path: ${{ runner.temp }}
       - name: Prepare KVM
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
       - name: Boot ${{ matrix.system }}
         run: scripts/vm/vm.sh boot ${{ matrix.system }} "$RUNNER_TEMP/vm"
-      - name: Install the desktop's documented system packages
-        run: |
-          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint \
-            'sudo apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q libwebkit2gtk-4.1-0 libgtk-3-0 && apt-cache depends libwebkit2gtk-4.1-0 | grep -i bubble; dpkg -l bubblewrap | tail -1'
-          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo install -o tester -m 755 /usr/bin/bwrap /home/tester/bwrap-copy'
       - name: Kernel features as a normal user
         run: |
           scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester scripts/vm/probe_kernel.sh probe_kernel.sh
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash probe_kernel.sh'
-      - name: Kernel features of the runner (for comparison)
-        run: bash scripts/vm/probe_kernel.sh
+      - name: Remove Python from the machine (cloud images ship it for cloud-init)
+        run: |
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint \
+            'sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "python3*" "libpython3*" >/dev/null 2>&1; dpkg -l | grep -c "^ii  python3" || true'
+      - name: Security probes and compatibility checks (normal user, bundled interpreter only)
+        run: |
+          scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester "$RUNNER_TEMP/probe-bundle.tar.gz" probe-bundle.tar.gz
+          scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester scripts/vm/run_probes.sh run_probes.sh
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash run_probes.sh'
+      - name: Fetch the report
+        if: always()
+        run: |
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat probes.json' >"$RUNNER_TEMP/probes-${{ matrix.system }}.json" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probes-${{ matrix.system }}
+          path: ${{ runner.temp }}/probes-${{ matrix.system }}.json
+          retention-days: 30
       - name: Stop
         if: always()
         run: scripts/vm/vm.sh stop "$RUNNER_TEMP/vm"
