@@ -4,8 +4,9 @@ name: Packaged app on real systems
 # its official cloud image booted in a KVM virtual machine (own kernel, AppArmor as shipped). The machine is made a
 # clean base first (no Python, Node.js, Rust, Docker or bubblewrap); every test runs as a normal user without sudo.
 #   1. sandbox: the built-in sandbox's security probes and compatibility checks with the app's own interpreter;
-#   2. gui: the app in a virtual X display (WebKitGTK installed the way the README says; it brings bubblewrap along,
-#      which WebKit uses for its own web processes and Nodestro does not);
+#   2. gui: the app in a virtual X display (WebKitGTK installed the way the README says; it depends on bubblewrap,
+#      which WebKit uses for its own web processes and Nodestro does not, so bubblewrap is removed for step 1 and
+#      put back for this one);
 #   3. gnome: the app in a headless GNOME Shell Wayland session (an attempt; its result is reported, see the step).
 on:
   workflow_call:
@@ -71,6 +72,17 @@ jobs:
         run: |
           scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester scripts/vm/probe_kernel.sh probe_kernel.sh
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash probe_kernel.sh'
+      # The app's system requirement (WebKitGTK 4.1, as README.txt says) and a virtual display are installed first,
+      # while apt still works; WebKit depends on bubblewrap for its own web processes, so its package is kept aside
+      # to be put back for the window tests. GNOME Shell is for the session attempt below.
+      - name: Install the app's system requirement (WebKitGTK 4.1), a virtual display and GNOME Shell
+        run: |
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'set -e
+            export DEBIAN_FRONTEND=noninteractive
+            sudo -E apt-get update -qq
+            sudo -E apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth curl procps >/dev/null
+            sudo -E apt-get install -y -qq --no-install-recommends gnome-shell dbus-user-session >/dev/null || echo "GNOME Shell could not be installed"
+            mkdir -p debs && cd debs && apt-get download -qq bubblewrap && ls'
       - name: Clean base system (no Python, Node.js, Rust, Docker, bubblewrap)
         run: |
           scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" maint scripts/vm/clean_system.sh clean_system.sh
@@ -81,10 +93,8 @@ jobs:
             scripts/vm/vm.sh copy "$RUNNER_TEMP/vm" tester "$f" .
           done
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh sandbox'
-      - name: Install the app's system requirement (WebKitGTK 4.1) and a virtual display
-        run: |
-          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint \
-            'sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth curl procps >/dev/null && echo "bubblewrap (WebKit dependency): $(command -v bwrap || echo none)"; ! command -v python3'
+      - name: Put bubblewrap back for WebKit (WebKit's own web-process sandbox, not used by Nodestro)
+        run: scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo dpkg -i debs/bubblewrap_*.deb >/dev/null && command -v bwrap && ! command -v python3'
       - name: Packaged app in a virtual X display (normal user)
         run: scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh gui'
       # GNOME Shell's headless mode gives a real GNOME Wayland session without a screen. A failure here is reported
@@ -93,8 +103,7 @@ jobs:
         id: gnome
         continue-on-error: true
         run: |
-          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint \
-            'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends gnome-shell dbus-user-session >/dev/null; ! command -v python3 || echo "note: python3 came with GNOME Shell"'
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'command -v gnome-shell'
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh gnome'
       - name: Summary
         if: always()
