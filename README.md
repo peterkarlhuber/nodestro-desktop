@@ -68,8 +68,8 @@ workflow builds the same files without creating a release. CI writes the manifes
 Builds are **not signed**: no signing certificate is configured, and the manifest says so. Verify the archive with
 `sha256sum -c SHA256SUMS`. Update: unpack the new archive in place of the old one; the data directory stays where it
 is, and migrations back it up first. Rollback: unpack the previous archive. A data directory that a newer version
-already migrated is refused by an older one (`backup.schema_too_new`); restore the pre-migration backup from
-`~/.nodestro/backups/` in that case.
+already migrated is refused by an older one (`storage.schema_too_new`); restore the pre-migration backup from
+`~/.nodestro/backups/pre-migration-*.db` in that case.
 
 ## License
 
