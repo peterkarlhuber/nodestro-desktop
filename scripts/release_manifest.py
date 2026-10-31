@@ -23,9 +23,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from pathlib import Path
 import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
 # Runs inside the bundled interpreter: name, version and declared license of every installed distribution.
