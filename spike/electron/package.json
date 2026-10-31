@@ -1,0 +1,9 @@
+{
+  "name": "nodestro-desktop-spike-electron",
+  "private": true,
+  "version": "0.0.0",
+  "main": "main.js",
+  "devDependencies": {
+    "electron": "38.2.0"
+  }
+}

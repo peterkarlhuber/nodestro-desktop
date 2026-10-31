@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: bash -n spike/backend/build_backend.sh spike/backend/measure_start.sh
+      - run: shellcheck spike/backend/*.sh
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: node --check spike/electron/main.js
+
+  tauri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: System libraries of the Tauri shell (WebKitGTK 4.1)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev libxdo-dev
+      - name: Build the spike shell
+        working-directory: spike/tauri
+        run: cargo build --locked
