@@ -16,14 +16,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - run: bash -n spike/backend/build_backend.sh spike/backend/measure_start.sh
-      - run: shellcheck spike/backend/*.sh
+      - run: shellcheck scripts/*.sh spike/backend/*.sh
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: node --check spike/electron/main.js
+      - run: node --check app/ui/start.js && node --check spike/electron/main.js
+      - name: studio.json names a full commit
+        run: python3 -c 'import json,re; assert re.fullmatch(r"[0-9a-f]{40}", json.load(open("studio.json"))["nodestro-studio"])'
 
-  tauri:
+  app:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -33,6 +34,33 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev libxdo-dev
-      - name: Build the spike shell
-        working-directory: spike/tauri
-        run: cargo build --locked
+      - working-directory: app
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo build --locked --release
+      - name: Grant read access to the private repositories
+        env:
+          NODESTRO_READ: ${{ secrets.NODESTRO_READ }}
+        run: |
+          if [ -z "$NODESTRO_READ" ]; then
+            echo "::error::Secret NODESTRO_READ is missing: a token with read access to orkexa and the nodestro repositories."
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${NODESTRO_READ}@github.com/peterkarlhuber/".insteadOf "https://github.com/peterkarlhuber/"
+      - run: python3 -m pip install --user uv
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Build the backend from the pinned studio commit
+        run: scripts/build_backend.sh "$RUNNER_TEMP/backend"
+      - name: Package
+        run: scripts/package_linux.sh app/target/release/nodestro-desktop "$RUNNER_TEMP/backend" nodestro-linux-x86_64.tar.gz
+      - name: Smoke test on a clean Ubuntu 24.04 container
+        run: scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nodestro-linux-x86_64
+          path: nodestro-linux-x86_64.tar.gz
+          retention-days: 7

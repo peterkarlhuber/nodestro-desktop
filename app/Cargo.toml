@@ -1,0 +1,20 @@
+[package]
+name = "nodestro-desktop"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Nodestro as a desktop application: a window for the bundled studio backend"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+getrandom = "0.3"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"
