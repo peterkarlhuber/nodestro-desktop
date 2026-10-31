@@ -55,6 +55,9 @@ Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is reloc
 
 ## Restrictions of this preview
 
+- **Licenses**: `LICENSES/` in the archive holds Nodestro's license and the license texts of the Rust crates and
+  npm packages it contains; Python packages keep theirs in their `*.dist-info` directories. 5 crates and 2 npm
+  packages ship no license file; their declared licenses (MIT, BSD-3-Clause, Apache-2.0 OR MIT, MPL-2.0) are listed.
 - **Unsigned preview**: no build is signed; the window title and `README.txt` in the archive name the preview
   version. Not for production data.
 - No installer, no updater, no desktop menu entry.

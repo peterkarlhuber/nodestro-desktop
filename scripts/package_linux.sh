@@ -3,7 +3,9 @@
 #
 #   scripts/package_linux.sh <shell-binary> <backend-dir> <output.tar.gz> [version]
 #
-# Layout: nodestro/nodestro-desktop, nodestro/backend/python/..., nodestro/README.txt, nodestro/VERSION.
+# Layout: nodestro/nodestro-desktop, nodestro/backend/python/..., nodestro/README.txt, nodestro/VERSION,
+# nodestro/LICENSES/ (Nodestro's license and the license texts of the Rust crates and npm packages it contains; the
+# Python packages keep theirs in their *.dist-info directories). Needs cargo for the crate list.
 # The README names the version, says the build is an unsigned preview and lists the system requirements.
 set -euo pipefail
 shell=$1
@@ -17,6 +19,19 @@ cp "$shell" "$stage/nodestro/nodestro-desktop"
 chmod 755 "$stage/nodestro/nodestro-desktop"
 cp -a "$backend/python" "$stage/nodestro/backend/python"
 echo "$version" >"$stage/nodestro/VERSION"
+here=$(cd "$(dirname "$0")/.." && pwd)
+mkdir -p "$stage/nodestro/LICENSES"
+cp "$here/LICENSE" "$stage/nodestro/LICENSES/LICENSE-nodestro.txt"
+python3 "$here/scripts/cargo_licenses.py" "$here/app/Cargo.toml" >"$stage/nodestro/LICENSES/THIRD-PARTY-rust.txt"
+cp "$backend/meta/npm-licenses.txt" "$stage/nodestro/LICENSES/THIRD-PARTY-npm.txt"
+cat >"$stage/nodestro/LICENSES/README.txt" <<'TEXT'
+Nodestro is MIT licensed (LICENSE-nodestro.txt). It contains third-party software under its own licenses:
+- THIRD-PARTY-rust.txt: the Rust crates of the window (nodestro-desktop);
+- THIRD-PARTY-npm.txt: the npm packages built into the studio interface;
+- backend/python/lib/python3.13/LICENSE.txt: CPython; each Python package's license is in its
+  backend/python/lib/python3.13/site-packages/*.dist-info directory.
+The complete list with declared licenses is in release-manifest.json of the release.
+TEXT
 cat >"$stage/nodestro/README.txt" <<TEXT
 Nodestro Desktop $version (Linux x86_64)
 
