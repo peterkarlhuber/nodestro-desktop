@@ -47,7 +47,7 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
 
 ### DSK-002 · CI must not require the `NODESTRO_READ` secret
 
-- **Priority:** P2 Medium · **Status:** Open · **Refs:** #17, backend audit D-08
+- **Priority:** P2 Medium · **Status:** Open · **Refs:** #17, backend audit D-08; same change in runtime #75 (RT-029)
 - **What:** `ci.yml` and `release.yml` fail without the secret although all component repositories are public, so
   Dependabot PRs #10 and #11 can never pass. README, `build_backend.sh` and CI comments still say "private".
 - **Next step:** Make the token optional and correct the texts (see #17).
@@ -182,9 +182,11 @@ None known beyond DSK-001 and DSK-002.
 
 | This repo item | Other repo | Other item | Relation |
 |---|---|---|---|
-| DSK-001 | nodestro-studio | `platform/versions.json` `products` still names the withdrawn candidate; RELEASES.md and IMPLEMENTATION_STATUS.md not updated after the sandbox | Update together |
+| DSK-001 | nodestro-studio | ST-027 (`platform/versions.json` `products` still names the withdrawn candidate), ST-018 (RELEASES.md and IMPLEMENTATION_STATUS.md not updated after the sandbox) | Update together |
 | DSK-011 | nodestro-server | `scripts/` (source copies) | Sync with |
-| DSK-010 | nodestro-runtime | Built-in sandbox `TESTED_SYSTEMS` | New systems must be validated there first |
+| DSK-013 | nodestro-server, nodestro-local-docker | SRV-016, LD-009 (pins at branch heads) | Re-pin in the same cascade |
+| DSK-010 | nodestro-runtime | RT-018 (built-in sandbox `TESTED_SYSTEMS`) | New systems must be validated there first |
+| DSK-002 | all component repositories | `NODESTRO_READ` CI change (runtime RT-029) | Same change everywhere |
 
 ## Maintaining this file
 
