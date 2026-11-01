@@ -3,7 +3,7 @@
 > Open work for this repository: release blockers, known bugs, security follow-ups, technical debt and planned improvements.
 > GitHub issues are the source of truth for details; this file is the entry point and summary.
 >
-> **Last full review:** 2026-11-01 against `master` at `80df14d`.
+> **Last full review:** 2026-11-01 against `master` at `58e9a1f`.
 
 ## Summary
 
@@ -12,8 +12,8 @@
 | P0 Critical | 0 |
 | P1 High | 1 |
 | P2 Medium | 4 |
-| P3 Low | 9 |
-| P4 Optional | 2 |
+| P3 Low | 8 |
+| P4 Optional | 3 |
 
 **Release blockers:** DSK-001.
 
@@ -145,12 +145,12 @@ None known beyond DSK-001 and DSK-002.
 - **What:** A `.pyc` file is tracked in git, and `.gitignore` has no `__pycache__/` entry.
 - **Next step:** Remove it and add `__pycache__/` to `.gitignore`.
 
-### DSK-013 · Pin hygiene: merge commits and pin distance
+### DSK-013 · Warn when the pinned studio falls behind
 
-- **Priority:** P3 Low · **Status:** Open · **Refs:** backend audit D-01
-- **What:** `studio.json` pins `b8c6d48`, a studio branch head, although its comment promises a master merge commit;
-  CI does not warn when the pin falls behind the latest studio platform commit.
-- **Next step:** Re-pin to a merge commit in the next cascade; add a CI warning for pin distance.
+- **Priority:** P4 Optional · **Status:** Open · **Refs:** `studio.json`, backend audit D-01
+- **What:** `studio.json` now pins master merge commits (re-pinned with the Live Run Chat cascade), but CI checks only that
+  the pins resolve, not how far they lag behind the latest studio platform commit.
+- **Next step:** Add a CI warning for pin distance; keep pinning merge commits in every cascade.
 
 ## Later optimizations
 
@@ -184,7 +184,7 @@ None known beyond DSK-001 and DSK-002.
 |---|---|---|---|
 | DSK-001 | nodestro-studio | ST-027 (`platform/versions.json` `products` still names the withdrawn candidate), ST-018 (RELEASES.md and IMPLEMENTATION_STATUS.md not updated after the sandbox) | Update together |
 | DSK-011 | nodestro-server | `scripts/` (source copies) | Sync with |
-| DSK-013 | nodestro-server, nodestro-local-docker | SRV-016, LD-009 (pins at branch heads) | Re-pin in the same cascade |
+| DSK-013 | nodestro-server, nodestro-local-docker | SRV-016, LD-009 (pin distance warning) | Same check in all three |
 | DSK-010 | nodestro-runtime | RT-018 (built-in sandbox `TESTED_SYSTEMS`) | New systems must be validated there first |
 | DSK-002 | all component repositories | `NODESTRO_READ` CI change (runtime RT-029) | Same change everywhere |
 
