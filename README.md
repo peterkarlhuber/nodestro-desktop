@@ -40,6 +40,16 @@ check both cases: without a keychain (session only) and with an unlocked GNOME K
 Data stays in `~/.nodestro` (or `NODESTRO_DATA_DIR`), shared with the `nodestro` command; only one of them can use a
 data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`.
 
+**Amazon Bedrock (AWS)** has no API key in Nodestro. The backend uses the AWS credentials of the user's computer:
+the default chain (environment, `~/.aws/config` and `~/.aws/credentials`, AWS IAM Identity Center (SSO) after
+`aws sso login`, `credential_process`) or a named profile from `~/.aws/config`, chosen in Settings together with the
+region. Nodestro stores only the region, the profile name and the data residency choice, never AWS keys. When the app
+is started from a desktop launcher, variables exported in a shell profile (`~/.bashrc`: `AWS_PROFILE`, `AWS_REGION`)
+are not set, so choose an explicit profile name in Settings instead of relying on `AWS_PROFILE`. AI-generated tools
+cannot read `~/.aws` (the built-in sandbox forbids the home directory). Network access needed: `bedrock-runtime.<region>`,
+`bedrock.<region>` and `sts.<region>.amazonaws.com`, and for SSO `oidc.<region>` and `portal.sso.<region>.amazonaws.com`.
+Behind a TLS-inspecting proxy, set `AWS_CA_BUNDLE` to its certificate bundle: the AWS SDK ignores `SSL_CERT_FILE`.
+
 ## System requirements (tested)
 
 | Requirement | Why | Evidence |
