@@ -76,7 +76,9 @@ jobs:
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash probe_kernel.sh'
       # The app's system requirement (WebKitGTK 4.1, as README.txt says) and a virtual display are installed first,
       # while apt still works; WebKit depends on bubblewrap for its own web processes, so its package is kept aside
-      # to be put back for the window tests. GNOME Shell is for the session attempt below.
+      # to be put back for the window tests. GNOME Shell is for the session attempt below. GNOME Keyring is only
+      # downloaded here: apt refuses to install anything once Python is purged, and it must not run during the
+      # test without a keychain, so its packages are installed with dpkg just before the keychain test.
       - name: Install the app's system requirement (WebKitGTK 4.1), a virtual display and GNOME Shell
         run: |
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'set -e
@@ -84,6 +86,8 @@ jobs:
             sudo -E apt-get update -qq
             sudo -E apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth curl procps >/dev/null
             sudo -E apt-get install -y -qq --no-install-recommends gnome-shell dbus-user-session >/dev/null || echo "GNOME Shell could not be installed"
+            mkdir -p "$HOME/keyring-debs/partial"
+            sudo -E apt-get install -y -qq --no-install-recommends --download-only -o Dir::Cache::archives="$HOME/keyring-debs" gnome-keyring libsecret-tools dbus-x11 >/dev/null
             mkdir -p debs && cd debs && apt-get download -qq bubblewrap && ls'
       - name: Clean base system (no Python, Node.js, Rust, Docker, bubblewrap)
         run: |
@@ -101,7 +105,7 @@ jobs:
         run: scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh gui'
       - name: Packaged app with an unlocked keychain (GNOME Keyring, normal user)
         run: |
-          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gnome-keyring libsecret-tools dbus-x11 >/dev/null'
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo dpkg -i keyring-debs/*.deb >/dev/null && command -v gnome-keyring-daemon secret-tool dbus-launch && ! command -v python3'
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh keychain'
       # GNOME Shell's headless mode gives a real GNOME Wayland session without a screen. A failure here is reported
       # in the job summary and does not hide the other results; it is not counted as a passed desktop-session test.
