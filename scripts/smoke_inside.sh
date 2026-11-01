@@ -15,6 +15,8 @@ if [ "${1:-}" = as-user ]; then
     if [ $(( $(date +%s) - start )) -gt 120 ]; then echo "backend not ready"; cat app.out "$log" || true; exit 1; fi
   done
   port=$(sed -n "s/.*backend ready on port \([0-9]*\).*/\1/p" app.out)
+  # A failed check below ends the script silently (set -e): show which one and the backend log.
+  trap 'status=$?; if [ "$status" != 0 ]; then echo "smoke check failed; backend log:"; cat "$log" || true; fi' EXIT
   # Another program on this computer: no session, no launch.
   test "$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$port/api/workflows")" = 401
   test "$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$port/api/health")" = 200
