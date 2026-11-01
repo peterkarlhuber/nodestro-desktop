@@ -139,6 +139,10 @@ is, and migrations back it up first. Rollback: unpack the previous archive. A da
 already migrated is refused by an older one (`storage.schema_too_new`); restore the pre-migration backup from
 `~/.nodestro/backups/pre-migration-*.db` in that case.
 
+## Open work
+
+Known gaps, follow-ups and untested platforms are listed in [docs/TODO.md](docs/TODO.md).
+
 ## License
 
 MIT, see `LICENSE`.
