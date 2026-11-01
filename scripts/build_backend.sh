@@ -10,7 +10,8 @@
 #    needs read access (in CI: the NODESTRO_READ secret, never printed). Nothing is fetched at run time.
 # 3. The studio commit, its versions.json and package-lock.json go to <output-dir>/meta for the release manifest,
 #    and the license texts of the interface's npm packages to <output-dir>/meta/npm-licenses.txt for the archive.
-# 4. pip, build tools and caches are removed. The app starts `python/bin/python3 -I -m nodestro_studio`,
+# 4. pip, build tools and caches are removed; import checks prove the studio and the Amazon Bedrock provider
+#    (boto3, botocore's service models) are in the bundle. The app starts `python/bin/python3 -I -m nodestro_studio`,
 #    never the generated `nodestro` script (it names the interpreter by its build-time path).
 set -euo pipefail
 out=$1
@@ -46,4 +47,6 @@ test -f "$out"/python/lib/python3.*/site-packages/nodestro_studio/static/index.h
 "$out/python/bin/python3" -m pip uninstall --quiet --yes --root-user-action=ignore pip
 find "$out/python" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
 "$out/python/bin/python3" -I -c "import nodestro_api.launch, nodestro_studio.app"
+# The Amazon Bedrock provider and botocore's service models (its data files) are in the bundle (-B: no byte code).
+"$out/python/bin/python3" -I -B -c "import boto3, botocore.session, orkexa.providers.bedrock; s = botocore.session.get_session(); [s.get_service_model(n) for n in ('bedrock-runtime', 'bedrock', 'sts')]"
 du -sh "$out/python"
