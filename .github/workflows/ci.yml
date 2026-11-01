@@ -17,7 +17,7 @@ jobs:
         with:
           persist-credentials: false
       - run: shellcheck scripts/*.sh spike/backend/*.sh
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       - run: python3 -m py_compile scripts/release_manifest.py scripts/scan_secrets.py scripts/cargo_licenses.py
@@ -64,7 +64,7 @@ jobs:
             cargo test --locked -- --ignored
           '
       - run: python3 -m pip install --user uv==0.13.1
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       # The Nodestro components and orkexa are private: git and pip clone them with a token that can read them.
