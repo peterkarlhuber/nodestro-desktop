@@ -7,7 +7,9 @@ name: Packaged app on real systems
 #   2. gui: the app in a virtual X display (WebKitGTK installed the way the README says; it depends on bubblewrap,
 #      which WebKit uses for its own web processes and Nodestro does not, so bubblewrap is removed for step 1 and
 #      put back for this one);
-#   3. gnome: the app in a headless GNOME Shell Wayland session (an attempt; its result is reported, see the step).
+#   3. keychain: GNOME Keyring installed and unlocked in a D-Bus session; the MCP token vault key is stored there
+#      once and reused (decision D-3; step 2 checks the session-only fallback without a keychain);
+#   4. gnome: the app in a headless GNOME Shell Wayland session (an attempt; its result is reported, see the step).
 on:
   workflow_call:
     inputs:
@@ -97,6 +99,10 @@ jobs:
         run: scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo dpkg -i debs/bubblewrap_*.deb >/dev/null && command -v bwrap && ! command -v python3'
       - name: Packaged app in a virtual X display (normal user)
         run: scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh gui'
+      - name: Packaged app with an unlocked keychain (GNOME Keyring, normal user)
+        run: |
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gnome-keyring libsecret-tools dbus-x11 >/dev/null'
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh keychain'
       # GNOME Shell's headless mode gives a real GNOME Wayland session without a screen. A failure here is reported
       # in the job summary and does not hide the other results; it is not counted as a passed desktop-session test.
       - name: Packaged app in a GNOME Shell session (attempt)

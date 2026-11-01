@@ -34,7 +34,8 @@ Service such as GNOME Keyring or KWallet on Linux). The first start creates the 
 never on the command line, in a file or in a log (`app/src/vault.rs`). Without a usable keychain within 15 s (none
 running, access refused, an unlock prompt left open) the backend gets no key and keeps tokens for the current session
 only; there is no plain-text fallback. A `NODESTRO_VAULT_KEY` set by the operator takes precedence. If the keychain
-entry is deleted, stored tokens become unreadable and have to be entered again.
+entry is deleted, stored tokens become unreadable and have to be entered again. The packaged-app tests on Ubuntu 24.04 and Debian 13
+check both cases: without a keychain (session only) and with an unlocked GNOME Keyring (key stored once, reused).
 
 Data stays in `~/.nodestro` (or `NODESTRO_DATA_DIR`), shared with the `nodestro` command; only one of them can use a
 data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`.
