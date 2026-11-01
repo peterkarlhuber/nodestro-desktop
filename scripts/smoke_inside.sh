@@ -30,7 +30,8 @@ if [ "${1:-}" = as-user ]; then
   grep -q "backend stopped" app.out
   grep -q "GET /api/launch?token=\[redacted\] HTTP/1.1\" 200" "$log"
   grep -q "GET /api/settings HTTP/1.1\" 200" "$log"
-  grep -q "GET /api/workflows HTTP/1.1\" 200" "$log"
+  # The studio rendered a page: the workflow list, or the welcome page a fresh installation opens on.
+  grep -Eq "GET /(api/workflows|assets/WelcomePage-[^ ]*\.js) HTTP/1.1\" 200" "$log"
   # Only the curl probe above may have been refused.
   test "$(grep -c "\" 401" "$log")" = 1
   if grep -q "\" 403" "$log"; then echo "a request was refused with 403"; exit 1; fi
