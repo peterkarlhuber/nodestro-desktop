@@ -16,6 +16,7 @@ if [ "${1:-}" = as-user ]; then
   done
   port=$(sed -n "s/.*backend ready on port \([0-9]*\).*/\1/p" app.out)
   # A failed check below ends the script silently (set -e): show which one and the backend log.
+  # shellcheck disable=SC2329 # invoked by the EXIT trap
   show_log() {
     local status=$?
     if [ "$status" != 0 ]; then echo "smoke check failed; backend log:"; cat "$log" || true; fi
