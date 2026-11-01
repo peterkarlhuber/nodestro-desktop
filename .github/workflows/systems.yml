@@ -103,10 +103,6 @@ jobs:
         run: scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo dpkg -i debs/bubblewrap_*.deb >/dev/null && command -v bwrap && ! command -v python3'
       - name: Packaged app in a virtual X display (normal user)
         run: scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh gui'
-      - name: Packaged app with an unlocked keychain (GNOME Keyring, normal user)
-        run: |
-          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo dpkg -i keyring-debs/*.deb >/dev/null && command -v gnome-keyring-daemon secret-tool dbus-launch && ! command -v python3'
-          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh keychain'
       # GNOME Shell's headless mode gives a real GNOME Wayland session without a screen. A failure here is reported
       # in the job summary and does not hide the other results; it is not counted as a passed desktop-session test.
       - name: Packaged app in a GNOME Shell session (attempt)
@@ -115,6 +111,11 @@ jobs:
         run: |
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'command -v gnome-shell'
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh gnome'
+      # Last, so that the keyring packages change nothing for the window tests above.
+      - name: Packaged app with an unlocked keychain (GNOME Keyring, normal user)
+        run: |
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo dpkg -i keyring-debs/*.deb >/dev/null && command -v gnome-keyring-daemon secret-tool dbus-launch && ! command -v python3'
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh keychain'
       - name: Summary
         if: always()
         run: |
