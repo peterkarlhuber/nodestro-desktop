@@ -6,6 +6,8 @@
 #                                  interpreter and runtime (nothing from the system); prints the report to probes.json
 #   bash test_package.sh gui       start the app in a virtual X display (Xvfb) and check the studio opened
 #   bash test_package.sh gnome     start the app in a headless GNOME Shell (Wayland) session and check the same
+#   bash test_package.sh keychain  start the app twice in a D-Bus session with an unlocked GNOME Keyring and check
+#                                  that the MCP token vault key is created there once and reused (never printed)
 #
 # The sandbox step needs ~/test-wheels (numpy for the compiled-library check, pydantic for the tool runner, and a
 # pip wheel used only to fill the test environment: the app ships no pip).
@@ -55,6 +57,28 @@ print(sum(r["passed"] for r in d["results"]), "of", len(d["results"]), "passed")
     ;;
   gui)
     smoke xvfb
+    # No Secret Service on this machine: the app must say that MCP tokens are kept for the session only (D-3).
+    grep -q "keychain not usable" app.out
+    echo "without a keychain: MCP tokens are kept for the session only"
+    ;;
+  keychain)
+    # shellcheck disable=SC2016 # expanded by the inner shell
+    exec dbus-run-session -- bash -c '
+      eval "$(printf "vm\n" | gnome-keyring-daemon --unlock --components=secrets)"
+      bash "$0" keychain-inside
+    ' "$0"
+    ;;
+  keychain-inside)
+    lookup() { secret-tool lookup service Nodestro username mcp-token-vault-key 2>/dev/null || true; }
+    test -z "$(lookup)" # a fresh keyring holds no key yet
+    smoke xvfb
+    if grep -q "keychain not usable" app.out; then echo "the app did not use the unlocked keychain"; cat app.out; exit 1; fi
+    first=$(lookup | sha256sum)
+    test "$(lookup | wc -c)" -ge 32 # a key was stored (its value is never printed)
+    smoke xvfb
+    if grep -q "keychain not usable" app.out; then echo "the second start did not use the keychain"; exit 1; fi
+    test "$(lookup | sha256sum)" = "$first" # the same key is reused
+    echo "with an unlocked keychain: the vault key is stored once and reused"
     ;;
   gnome)
     export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
@@ -77,5 +101,5 @@ print(sum(r["passed"] for r in d["results"]), "of", len(d["results"]), "passed")
     smoke wayland
     ;;
   *)
-    echo "usage: test_package.sh sandbox|gui|gnome" >&2; exit 2 ;;
+    echo "usage: test_package.sh sandbox|gui|gnome|keychain" >&2; exit 2 ;;
 esac

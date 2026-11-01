@@ -7,7 +7,9 @@ name: Packaged app on real systems
 #   2. gui: the app in a virtual X display (WebKitGTK installed the way the README says; it depends on bubblewrap,
 #      which WebKit uses for its own web processes and Nodestro does not, so bubblewrap is removed for step 1 and
 #      put back for this one);
-#   3. gnome: the app in a headless GNOME Shell Wayland session (an attempt; its result is reported, see the step).
+#   3. keychain: GNOME Keyring installed and unlocked in a D-Bus session; the MCP token vault key is stored there
+#      once and reused (decision D-3; step 2 checks the session-only fallback without a keychain);
+#   4. gnome: the app in a headless GNOME Shell Wayland session (an attempt; its result is reported, see the step).
 on:
   workflow_call:
     inputs:
@@ -74,7 +76,9 @@ jobs:
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash probe_kernel.sh'
       # The app's system requirement (WebKitGTK 4.1, as README.txt says) and a virtual display are installed first,
       # while apt still works; WebKit depends on bubblewrap for its own web processes, so its package is kept aside
-      # to be put back for the window tests. GNOME Shell is for the session attempt below.
+      # to be put back for the window tests. GNOME Shell is for the session attempt below. GNOME Keyring is only
+      # downloaded here: apt refuses to install anything once Python is purged, and it must not run during the
+      # test without a keychain, so its packages are installed with dpkg just before the keychain test.
       - name: Install the app's system requirement (WebKitGTK 4.1), a virtual display and GNOME Shell
         run: |
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'set -e
@@ -82,6 +86,8 @@ jobs:
             sudo -E apt-get update -qq
             sudo -E apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth curl procps >/dev/null
             sudo -E apt-get install -y -qq --no-install-recommends gnome-shell dbus-user-session >/dev/null || echo "GNOME Shell could not be installed"
+            mkdir -p "$HOME/keyring-debs/partial"
+            sudo -E apt-get install -y -qq --no-install-recommends --download-only -o Dir::Cache::archives="$HOME/keyring-debs" gnome-keyring libsecret-tools dbus-x11 >/dev/null
             mkdir -p debs && cd debs && apt-get download -qq bubblewrap && ls'
       - name: Clean base system (no Python, Node.js, Rust, Docker, bubblewrap)
         run: |
@@ -105,6 +111,11 @@ jobs:
         run: |
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'command -v gnome-shell'
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh gnome'
+      # Last, so that the keyring packages change nothing for the window tests above.
+      - name: Packaged app with an unlocked keychain (GNOME Keyring, normal user)
+        run: |
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" maint 'sudo dpkg -i keyring-debs/*.deb >/dev/null && command -v gnome-keyring-daemon secret-tool dbus-launch && ! command -v python3'
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'bash test_package.sh keychain'
       - name: Summary
         if: always()
         run: |
