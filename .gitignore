@@ -4,3 +4,4 @@ spike/tauri/gen/
 dist/
 build/
 app/gen/
+local-test/

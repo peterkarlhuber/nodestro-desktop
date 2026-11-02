@@ -99,8 +99,8 @@ Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is reloc
   same on Windows (standard input), but only the Linux build exists and is tested.
 - A process of the same OS user can still read the data directory itself; the launch secret protects the API, not
   the files.
-- The keychain key, like the launch secret, reaches the backend through its environment, which processes of the same
-  OS user can read; it is not stored next to the sealed tokens in the data directory.
+- The keychain key is not stored next to the sealed tokens in the data directory; like the launch secret, it reaches
+  the backend only through the handoff pipe (see "How it works").
 
 ## Build
 
@@ -112,6 +112,12 @@ scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz   # needs Docker
 ```
 
 For development, `NODESTRO_BACKEND=<path of a nodestro command>` replaces the bundled backend.
+
+**Local test builds** (unsigned, never published) on Linux and macOS: `scripts/local_test_build.sh` builds the shell
+and the backend from the pinned state, stages the app in `local-test/` and checks the start, the secret handover,
+Docker detection, the sandbox status, refusing AI-generated code without an approved sandbox and the shutdown.
+Prerequisites, expected results, the untested Windows steps and which diagnostics to send are in
+[docs/testing.md](docs/testing.md).
 
 **Logo and icons.** `branding/` holds the official Nodestro logo masters (`nodestro-logo-transparent.png`,
 `nodestro-logo-white.png`, kept unchanged). `scripts/build_branding.sh` derives everything else from them with
