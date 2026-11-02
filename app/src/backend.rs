@@ -1,5 +1,13 @@
 //! The bundled backend: where it is, how it is started with a per-launch secret, when it is ready,
 //! and how it is stopped. Nothing here depends on Tauri, so it is unit-tested directly.
+//!
+//! The secrets (the per-launch secret and the MCP token vault key) reach the backend through a pipe, never through
+//! its environment or command line: every process of the same OS user can read another process's initial
+//! environment and arguments (`sysctl` `KERN_PROCARGS2` on macOS, `/proc/<pid>/environ` on Linux; review MS-1).
+//! The backend is started with `--secrets-fd 0` and a pipe as its standard input; the shell writes one JSON object
+//! (`{"launch_secret": …, "vault_key": … | null}`) and closes its end. The backend reads it before anything else,
+//! replaces its standard input by the null device and keeps the values in memory (`nodestro_api.handoff`), so no
+//! process it starts inherits them. Standard input is a pipe the same way on Linux, macOS and Windows.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -12,8 +20,11 @@ use crate::vault::VAULT_KEY_ENV;
 
 /// Overrides the backend command (development, tests): the path of a `nodestro` executable.
 pub const BACKEND_ENV: &str = "NODESTRO_BACKEND";
-/// The variable through which the backend receives the per-launch secret (`nodestro_api.launch`).
+/// The operator's variable for the per-launch secret (`nodestro_api.launch`); removed from the backend's
+/// environment, which gets the secret through the handoff pipe instead.
 pub const SECRET_ENV: &str = "NODESTRO_LAUNCH_SECRET";
+/// The backend's option that names the descriptor of the handoff (0: its standard input).
+pub const SECRETS_FD_OPTION: &str = "--secrets-fd";
 /// How long the backend may take to answer `/api/health`.
 pub const START_TIMEOUT: Duration = Duration::from_secs(90);
 /// How long the backend may take to shut down after SIGINT before it is killed.
@@ -48,6 +59,28 @@ pub fn backend_command(exe: &Path, override_: Option<String>) -> Launcher {
     let python = exe.parent().unwrap_or(Path::new(".")).join("backend").join("python");
     let program = if cfg!(windows) { python.join("python.exe") } else { python.join("bin").join("python3") };
     Launcher { program, prefix: vec!["-I".into(), "-m".into(), "nodestro_studio".into()] }
+}
+
+/// A JSON string literal of `value` (quotes, backslashes and control characters escaped).
+fn json_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The handoff the backend reads on its standard input: one JSON object with the launch secret and the vault key.
+pub fn handoff(secret: &str, vault_key: Option<&str>) -> String {
+    let key = vault_key.map(json_string).unwrap_or_else(|| "null".to_string());
+    format!("{{\"launch_secret\":{},\"vault_key\":{key}}}", json_string(secret))
 }
 
 /// A free port on the loopback interface (the backend binds it right after; a race with another
@@ -99,8 +132,37 @@ pub struct Backend {
 }
 
 impl Backend {
+    /// The backend's command: the options and an environment without any secret; its standard input is the pipe.
+    fn command(command: &Launcher, port: u16, data_dir: Option<String>) -> Command {
+        let mut args = command.prefix.clone();
+        args.extend([
+            "--no-browser".to_string(),
+            "--host".into(),
+            "127.0.0.1".into(),
+            "--port".into(),
+            port.to_string(),
+            SECRETS_FD_OPTION.into(),
+            "0".into(),
+        ]);
+        if let Some(dir) = data_dir.filter(|value| !value.is_empty()) {
+            args.extend(["--data-dir".to_string(), dir]);
+        }
+        let mut process = Command::new(&command.program);
+        process
+            .args(&args)
+            // Never in the environment (readable by every process of this user, see the module comment), also not
+            // when the operator set them for the shell itself.
+            .env_remove(SECRET_ENV)
+            .env_remove(VAULT_KEY_ENV)
+            .env_remove("NODESTRO_HOST")
+            .env_remove("NODESTRO_ALLOWED_HOSTS")
+            .stdin(Stdio::piped());
+        process
+    }
+
     /// Start `command` on `port` with a new secret; its output goes to `log`. `vault_key` seals MCP tokens
-    /// (`NODESTRO_VAULT_KEY`, see `vault`); without it the backend keeps them for the session only.
+    /// (see `vault`); without it the backend keeps them for the session only. Both secrets are written to the
+    /// backend's standard input (see the module comment), which is closed right after.
     pub fn start(
         command: &Launcher,
         port: u16,
@@ -119,33 +181,20 @@ impl Backend {
             .or_else(|_| File::create(std::env::temp_dir().join("nodestro-desktop-backend.log")))
             .map_err(|error| StartError::Missing(error.to_string()))?;
         let errors = output.try_clone().map_err(|error| StartError::Missing(error.to_string()))?;
-        let mut args = command.prefix.clone();
-        args.extend([
-            "--no-browser".to_string(),
-            "--host".into(),
-            "127.0.0.1".into(),
-            "--port".into(),
-            port.to_string(),
-        ]);
-        if let Some(dir) = data_dir.filter(|value| !value.is_empty()) {
-            args.extend(["--data-dir".to_string(), dir]);
-        }
-        let mut process = Command::new(&command.program);
-        match vault_key {
-            Some(key) => process.env(VAULT_KEY_ENV, key),
-            None => process.env_remove(VAULT_KEY_ENV),
-        };
-        let child = process
-            .args(&args)
-            // Passed in the environment, never on the command line (visible to every user in the process list).
-            .env(SECRET_ENV, &secret)
-            .env_remove("NODESTRO_HOST")
-            .env_remove("NODESTRO_ALLOWED_HOSTS")
-            .stdin(Stdio::null())
+        let mut child = Self::command(command, port, data_dir)
             .stdout(output)
             .stderr(errors)
             .spawn()
             .map_err(|error| StartError::Missing(format!("{}: {error}", command.program.display())))?;
+        if let Some(mut pipe) = child.stdin.take() {
+            let mut payload = handoff(&secret, vault_key).into_bytes();
+            // The payload is far below a pipe's buffer, so this does not wait for the backend. A backend that ended
+            // already closed its end; `wait_until_ready` reports its exit.
+            let _ = pipe.write_all(&payload);
+            payload.fill(0);
+            // Dropping the write end is the backend's end of input.
+            drop(pipe);
+        }
         Ok(Backend { child, port, secret })
     }
 
@@ -287,35 +336,95 @@ mod tests {
         let _ = fs::remove_file(log);
     }
 
+    #[test]
+    fn the_handoff_is_one_json_object() {
+        assert_eq!(handoff(&"a".repeat(4), None), r#"{"launch_secret":"aaaa","vault_key":null}"#);
+        assert_eq!(handoff("s", Some("k+/=")), r#"{"launch_secret":"s","vault_key":"k+/="}"#);
+        // An operator's key with unusual characters stays valid JSON.
+        assert_eq!(json_string("a\"b\\c\nd\u{1}é"), r#""a\"b\\c\u000ad\u0001é""#);
+    }
+
+    #[test]
+    fn the_environment_carries_no_secret_and_stdin_is_the_handoff() {
+        let launcher = backend_command(Path::new("/x"), Some("/x/nodestro".into()));
+        let process = Backend::command(&launcher, 4711, Some("/tmp/data".into()));
+        let envs: Vec<_> = process.get_envs().collect();
+        for name in [SECRET_ENV, VAULT_KEY_ENV, "NODESTRO_HOST", "NODESTRO_ALLOWED_HOSTS"] {
+            // `None`: removed, also when the shell's own environment has it.
+            assert!(envs.contains(&(std::ffi::OsStr::new(name), None)), "{name}");
+        }
+        assert!(envs.iter().all(|(_, value)| value.is_none()), "nothing is added to the environment");
+        let args: Vec<_> = process.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        let at = args.iter().position(|arg| arg == SECRETS_FD_OPTION).unwrap();
+        assert_eq!(args[at + 1], "0");
+    }
+
     #[cfg(unix)]
     #[test]
-    fn an_early_exit_is_reported_and_the_secret_is_not_an_argument() {
+    fn an_early_exit_is_reported_and_the_secrets_arrive_only_on_stdin() {
         let dir = std::env::temp_dir().join(format!("nodestro-desktop-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let script = dir.join("nodestro");
-        // Records its arguments and whether the secret arrived, then fails.
-        fs::write(&script, "#!/bin/sh\necho \"args=$*\"\necho \"secret=${#NODESTRO_LAUNCH_SECRET}\"\necho \"vault=${#NODESTRO_VAULT_KEY}\"\nexit 3\n")
-            .unwrap();
+        let received = dir.join("received");
+        // Records its arguments, whether either secret is in its environment and what arrived on standard input
+        // (into a file of its own, so the log can be checked for the secrets), then fails.
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho \"args=$*\"\necho \"secret=${{#NODESTRO_LAUNCH_SECRET}}\"\n\
+                 echo \"vault=${{#NODESTRO_VAULT_KEY}}\"\ncat > '{}'\nexit 3\n",
+                received.display()
+            ),
+        )
+        .unwrap();
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         let log = dir.join("backend.log");
+        let key = "k".repeat(44);
         let mut backend = Backend::start(
             &backend_command(Path::new("/x"), Some(script.display().to_string())),
             free_port().unwrap(),
             Some("/tmp/data".into()),
-            Some(&"k".repeat(44)),
+            Some(&key),
             &log,
         )
         .unwrap();
         assert_eq!(backend.wait_until_ready(Duration::from_secs(10)), Err(StartError::Exited(Some(3))));
         let written = fs::read_to_string(&log).unwrap();
         assert!(written.contains("--host 127.0.0.1"));
+        assert!(written.contains("--secrets-fd 0"));
         assert!(written.contains("--data-dir /tmp/data"));
-        assert!(written.contains("secret=64"));
-        assert!(written.contains("vault=44"));
-        assert!(!written.contains(&"k".repeat(44)));
+        assert!(written.contains("secret=0"), "{written}");
+        assert!(written.contains("vault=0"), "{written}");
+        assert!(!written.contains(&key));
         assert!(!written.contains(&backend.secret));
+        // Read to its end: the shell closed the pipe after writing the handoff.
+        assert_eq!(fs::read_to_string(&received).unwrap(), handoff(&backend.secret, Some(&key)));
         assert!(backend.launch_url().ends_with(&backend.secret));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn without_a_vault_key_the_handoff_says_so() {
+        let dir = std::env::temp_dir().join(format!("nodestro-desktop-test-nokey-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("nodestro");
+        let received = dir.join("received");
+        fs::write(&script, format!("#!/bin/sh\ncat > '{}'\nexit 4\n", received.display())).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut backend = Backend::start(
+            &backend_command(Path::new("/x"), Some(script.display().to_string())),
+            free_port().unwrap(),
+            None,
+            None,
+            &dir.join("backend.log"),
+        )
+        .unwrap();
+        assert_eq!(backend.wait_until_ready(Duration::from_secs(10)), Err(StartError::Exited(Some(4))));
+        assert_eq!(fs::read_to_string(&received).unwrap(), handoff(&backend.secret, None));
+        assert!(fs::read_to_string(&received).unwrap().ends_with("\"vault_key\":null}"));
         let _ = fs::remove_dir_all(dir);
     }
 }

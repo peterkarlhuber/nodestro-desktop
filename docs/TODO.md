@@ -166,13 +166,15 @@ None known beyond DSK-001 and DSK-002.
 
 ## Accepted risks
 
-### DSK-015 · Same-user processes can read the launch secret, keychain key and data directory
+### DSK-015 · Same-user processes can read the data directory
 
-- **Priority:** P3 Low · **Status:** Accepted risk · **Refs:** README "Restrictions of this preview"
-- **What:** The launch secret and the vault key reach the backend through its environment, and the data directory
-  is readable by the same OS user. Accepted because such a process already runs with the user's rights; the launch
-  secret is useless after first use.
-- **Next step:** Re-evaluate with OS-level app sandboxing (macOS, Flatpak).
+- **Priority:** P3 Low · **Status:** Accepted risk · **Refs:** README "Restrictions of this preview", review MS-1
+- **What:** The data directory is readable by the same OS user, and a same-user process with debugging rights
+  (`ptrace`) can read the backend's memory. The launch secret and the vault key no longer reach the backend through its
+  environment (readable via `/proc/<pid>/environ` or macOS `KERN_PROCARGS2`): they go through a pipe on its standard
+  input (`--secrets-fd 0`) and stay in memory. Accepted because such a process already runs with the user's rights.
+- **Next step:** Re-evaluate with OS-level app sandboxing (macOS, Flatpak). Verify the pipe handoff on macOS and
+  Windows once those builds exist (only Linux is built and tested).
 
 ### DSK-016 · Electron spike lockfile with advisories
 

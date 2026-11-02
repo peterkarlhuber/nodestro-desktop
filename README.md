@@ -17,8 +17,13 @@ signed builds and no installer. `spike/` holds the packaging spike (plan PR-5) a
 | Clean-machine smoke test (Ubuntu 24.04 container without Python, Node.js, Rust or Docker) | `scripts/smoke_test.sh` |
 | Tests of the archive on real Ubuntu 24.04 and Debian 13 machines (KVM): built-in sandbox, window under Xvfb and in a GNOME Shell session | `.github/workflows/systems.yml`, `scripts/vm/` |
 
-1. The window shows its own start page and starts `backend/python/bin/python3 -I -m nodestro_studio` on a free
-   loopback port with a new 256-bit secret in `NODESTRO_LAUNCH_SECRET` (never on the command line).
+1. The window shows its own start page and starts `backend/python/bin/python3 -I -m nodestro_studio --secrets-fd 0`
+   on a free loopback port with a new 256-bit secret. The secret goes through a pipe on the backend's standard input,
+   never into its environment or onto its command line, which every process of the same OS user can read
+   (`/proc/<pid>/environ` on Linux, `sysctl` `KERN_PROCARGS2` on macOS): the shell writes one JSON object
+   `{"launch_secret": …, "vault_key": … | null}` and closes the pipe; the backend reads it first, replaces its standard
+   input by the null device and keeps the values in memory only (`nodestro_api.handoff`), so no process it starts
+   inherits them. `NODESTRO_LAUNCH_SECRET` and `NODESTRO_VAULT_KEY` are removed from the backend's environment.
 2. When `/api/health` answers, the window opens `/api/launch?token=…` once. The backend exchanges it for an
    `HttpOnly`, `SameSite=Strict` session cookie (`nodestro_api.launch`); every other request without that cookie is
    refused, so other programs, other users of the computer and web pages cannot use the studio API. The token is
@@ -30,10 +35,11 @@ signed builds and no installer. `spike/` holds the packaging spike (plan PR-5) a
 
 **Tokens of connected MCP services** are sealed with a key from the operating system's keychain (ADR-0007 D-3; Secret
 Service such as GNOME Keyring or KWallet on Linux). The first start creates the key (32 random bytes, entry
-"Nodestro" / `mcp-token-vault-key`); the shell hands it to the backend as `NODESTRO_VAULT_KEY` in its environment,
-never on the command line, in a file or in a log (`app/src/vault.rs`). Without a usable keychain within 15 s (none
+"Nodestro" / `mcp-token-vault-key`); the shell hands it to the backend in the same pipe as the launch secret, never
+in its environment, on the command line, in a file or in a log (`app/src/vault.rs`). Without a usable keychain within 15 s (none
 running, access refused, an unlock prompt left open) the backend gets no key and keeps tokens for the current session
-only; there is no plain-text fallback. A `NODESTRO_VAULT_KEY` set by the operator takes precedence. If the keychain
+only; there is no plain-text fallback. A `NODESTRO_VAULT_KEY` set by the operator for the shell takes precedence (and is handed over through the pipe as
+well). If the keychain
 entry is deleted, stored tokens become unreadable and have to be entered again. The packaged-app tests on Ubuntu 24.04 and Debian 13
 check both cases: without a keychain (session only) and with an unlocked GNOME Keyring (key stored once, reused).
 
@@ -88,8 +94,9 @@ Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is reloc
   normal user; elsewhere AI-generated tools need Docker or stay blocked, with the reason in Settings. There is no
   fallback to an unprotected process. Each tool call starts a new interpreter (about 0.13 to 0.19 s on the test
   machines).
-- The secret reaches the backend through its environment: a process of the same OS user could read the initial
-  environment, but the secret is useless once the window has used it.
+- A process of the same OS user can still read the data directory and, with debugging rights (`ptrace`), the
+  backend's memory; the secrets are no longer in any process's environment or command line. The handoff pipe works the
+  same on Windows (standard input), but only the Linux build exists and is tested.
 - A process of the same OS user can still read the data directory itself; the launch secret protects the API, not
   the files.
 - The keychain key, like the launch secret, reaches the backend through its environment, which processes of the same
