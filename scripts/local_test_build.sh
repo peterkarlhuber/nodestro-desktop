@@ -59,7 +59,8 @@ if [ "$build" = 1 ]; then
   cp -a "$work/backend/python" "$app/backend/python"
   echo "local-test-$(git -C "$here" rev-parse --short HEAD)" >"$app/VERSION"
   # The token that read the private components (CI) must not end up in the app, e.g. in a direct_url.json.
-  if grep -rIl -e "x-access-token" "$app" >/dev/null 2>&1; then
+  # (The export instructions in nodestro_api mention "x-access-token:<TOKEN>", a placeholder; a real value is not.)
+  if grep -rIlE -e "x-access-token:[A-Za-z0-9_]{20,}" "$app" >/dev/null 2>&1; then
     echo "the staged app contains 'x-access-token' (a clone credential): not used" >&2
     exit 1
   fi
