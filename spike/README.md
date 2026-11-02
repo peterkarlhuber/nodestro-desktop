@@ -18,6 +18,9 @@ of single runs after a first warm-up. They show the order of magnitude and are n
 | Electron shell | the same process model in `main.js` | `electron/` |
 | pywebview | installed only (`pywebview[qt]` 6.1) to measure its size and dependencies | none |
 
+The Tauri spike has no icon of its own: `tauri/tauri.conf.json` points at the app's `app/icons/icon.png`, which
+Tauri needs to compile the shell on Linux.
+
 ## Measurements
 
 | Measurement | Result |
