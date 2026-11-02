@@ -250,6 +250,21 @@ check "the API backend shut down cleanly" "$(grep -q "Application shutdown compl
 new_containers=$(docker_containers | grep -vxF -e "${containers_before:-none}" || true)
 check "no Docker container left behind ${new_containers:+($new_containers)}" "$(ok [ -z "$new_containers" ])"
 leftovers=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'nodestro-*' -newer "$work/tmp/started" 2>/dev/null | head -n 5)
+# macOS: WebKit (the window's WKWebView) creates $TMPDIR/<executable>/WebKit/... itself. Such a directory holding
+# only empty WebKit directories is the system's, not ours; anything else in it (a file) still fails the check.
+if [ "$os" = Darwin ] && [ -n "$leftovers" ]; then
+  kept=""
+  while IFS= read -r item; do
+    if [ "$(basename "$item")" = nodestro-desktop ] && [ -z "$(find "$item" -type f 2>/dev/null | head -n 1)" ] &&
+      [ -z "$(find "$item" -mindepth 1 -maxdepth 1 ! -name WebKit 2>/dev/null | head -n 1)" ]; then
+      echo "  info  $item holds only WebKit's own empty directories (created by macOS for the window)"
+    else
+      kept="${kept:+$kept
+}$item"
+    fi
+  done <<<"$leftovers"
+  leftovers=$kept
+fi
 if [ -n "$leftovers" ]; then
   # Name, size and age only, never contents: enough to tell what created them.
   while IFS= read -r item; do find "$item" -maxdepth 2 -exec ls -ld {} \; 2>/dev/null; done <<<"$leftovers" |
