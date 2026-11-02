@@ -113,6 +113,14 @@ scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz   # needs Docker
 
 For development, `NODESTRO_BACKEND=<path of a nodestro command>` replaces the bundled backend.
 
+**Logo and icons.** `branding/` holds the official Nodestro logo masters (`nodestro-logo-transparent.png`,
+`nodestro-logo-white.png`, kept unchanged). `scripts/build_branding.sh` derives everything else from them with
+`scripts/derive_branding.py` (the shared brand kit's script, vendored unchanged): the Tauri icons in `app/icons/`
+(`32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.png`, `icon.ico`, `icon.icns`, listed in `bundle.icon` of
+`app/tauri.conf.json`) and the start page's logo in light and dark (`app/ui/nodestro-logo.png`,
+`nodestro-logo-on-dark.png`). `icons/icon.png` (512 px) comes first in `bundle.icon` because Tauri uses the first PNG
+there as the window icon on Linux. Do not edit the derived files by hand.
+
 ## Releases
 
 A release has three separate steps. Only the last two publish anything, and each is started by a person.
