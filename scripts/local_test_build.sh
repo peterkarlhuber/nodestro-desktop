@@ -205,9 +205,10 @@ check "the handed-over secret is not in that backend's command line or environme
 check "that backend's standard input is the null device ($(proc_stdin "$api_pid"))" "$(ok [ "$(proc_stdin "$api_pid")" = /dev/null ])"
 get() { curl -s -b "$jar" "$@"; }
 json() { "$py" -I -c "import json, sys; d = json.load(open(sys.argv[1])); $2" "$1"; }
+# The first check on a new engine builds the sandbox image, which can take many minutes (DOCKER_READY_TIMEOUT).
+ready_until=$((SECONDS + ${DOCKER_READY_TIMEOUT:-1200}))
 get "$api/sandbox/status?wait=5" >"$diag/sandbox-status.json"
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  [ "$(json "$diag/sandbox-status.json" 'print(d.get("state"))')" = checking ] || break
+while [ "$(json "$diag/sandbox-status.json" 'print(d.get("state"))')" = checking ] && [ "$SECONDS" -lt "$ready_until" ]; do
   get "$api/sandbox/status?wait=5" >"$diag/sandbox-status.json"
 done
 json "$diag/sandbox-status.json" '
@@ -260,6 +261,13 @@ api_pid=
 sleep 1
 check "the API backend shut down cleanly" "$(grep -q "Application shutdown complete" "$diag/backend-api.log"; echo $?)"
 new_containers=$(docker_containers | grep -vxF -e "${containers_before:-none}" || true)
+if [ -n "$new_containers" ]; then
+  # Name, image, state and Nodestro/Orkexa labels: enough to tell which step left it.
+  while IFS= read -r id; do
+    docker inspect --format '    {{.Name}} {{.Config.Image}} {{.State.Status}} {{range $k, $v := .Config.Labels}}{{$k}}={{$v}} {{end}}' "$id" 2>/dev/null |
+      sed 's/ org\.opencontainers[^ ]*//g'
+  done <<<"$new_containers"
+fi
 check "no Docker container left behind ${new_containers:+($new_containers)}" "$(ok [ -z "$new_containers" ])"
 leftovers=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'nodestro-*' -newer "$work/tmp/started" 2>/dev/null | head -n 5)
 # macOS: WebKit (the window's WKWebView) creates $TMPDIR/<executable>/WebKit/... itself. Such a directory holding

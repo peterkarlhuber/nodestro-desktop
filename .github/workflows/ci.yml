@@ -153,6 +153,11 @@ jobs:
           export GIT_CONFIG_KEY_0="url.https://x-access-token:${NODESTRO_READ}@github.com/peterkarlhuber/.insteadOf"
           export GIT_CONFIG_VALUE_0="https://github.com/peterkarlhuber/"
           scripts/local_test_build.sh --build-only "$RUNNER_TEMP/local-test"
+          # The token itself, in text and binary files alike, must not be in the app.
+          if grep -rqF -- "$NODESTRO_READ" "$RUNNER_TEMP/local-test/nodestro"; then
+            echo "::error::the staged app contains the read token"
+            exit 1
+          fi
       - name: Test with Docker (Colima)
         if: matrix.docker
         run: scripts/local_test_build.sh --test-only "$RUNNER_TEMP/local-test"

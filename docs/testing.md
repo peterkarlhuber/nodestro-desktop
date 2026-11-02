@@ -57,7 +57,7 @@ local-test/nodestro/nodestro-desktop        # start the test app by hand (uses ~
 
 The work folder (default `local-test/`) must be missing, empty or made by an earlier run (marker `.nodestro-local-test`), because the script deletes folders inside it. A staged app that contains `x-access-token` (a clone credential) is refused.
 
-`--build-only` builds and stages without testing. CI runs the same script on real macOS (job "macOS test build": `macos-latest` on Apple Silicon without Docker, `macos-15-intel` with Colima and without Docker); it signs, uploads and publishes nothing. Docker Desktop is not available on hosted runners.
+`--build-only` builds and stages without testing. The first check on a new engine builds the sandbox image; the script waits up to `DOCKER_READY_TIMEOUT` seconds (default 1200) for the Docker status to settle. CI runs the same script on real macOS (job "macOS test build": `macos-latest` on Apple Silicon without Docker, `macos-15-intel` with Colima and without Docker); it signs, uploads and publishes nothing. Docker Desktop is not available on hosted runners.
 
 `--test-only` tests the app already staged in `local-test/` without building again. The tests use their own data
 directories in `local-test/` (never `~/.nodestro`) and give the app a random test vault key through
