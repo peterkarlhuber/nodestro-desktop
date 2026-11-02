@@ -31,7 +31,14 @@ elif [ "${1:-}" = --build-only ]; then
   shift
 fi
 work=${1:-$here/local-test}
+# The script deletes folders inside work-dir (backend, nodestro, data-*, tmp, diagnostics), so it uses only a missing or
+# empty folder or one it made itself (the marker file), never an arbitrary folder such as the home folder.
+if [ -d "$work" ] && [ ! -e "$work/.nodestro-local-test" ] && [ -n "$(ls -A "$work" 2>/dev/null)" ]; then
+  echo "work-dir $work is not empty and was not made by this script; choose another one" >&2
+  exit 2
+fi
 mkdir -p "$work"
+touch "$work/.nodestro-local-test"
 work=$(cd "$work" && pwd)
 app="$work/nodestro"
 diag="$work/diagnostics"
@@ -51,6 +58,11 @@ if [ "$build" = 1 ]; then
   cp "$here/app/target/release/nodestro-desktop" "$app/nodestro-desktop"
   cp -a "$work/backend/python" "$app/backend/python"
   echo "local-test-$(git -C "$here" rev-parse --short HEAD)" >"$app/VERSION"
+  # The token that read the private components (CI) must not end up in the app, e.g. in a direct_url.json.
+  if grep -rIl -e "x-access-token" "$app" >/dev/null 2>&1; then
+    echo "the staged app contains 'x-access-token' (a clone credential): not used" >&2
+    exit 1
+  fi
 fi
 py="$app/backend/python/bin/python3"
 [ -x "$app/nodestro-desktop" ] && [ -x "$py" ] || { echo "no staged app in $app (run without --test-only)" >&2; exit 1; }

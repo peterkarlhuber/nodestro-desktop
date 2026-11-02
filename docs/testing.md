@@ -55,6 +55,8 @@ DOCKER_HOST=unix:///nonexistent scripts/local_test_build.sh --test-only   # the 
 local-test/nodestro/nodestro-desktop        # start the test app by hand (uses ~/.nodestro)
 ```
 
+The work folder (default `local-test/`) must be missing, empty or made by an earlier run (marker `.nodestro-local-test`), because the script deletes folders inside it. A staged app that contains `x-access-token` (a clone credential) is refused.
+
 `--build-only` builds and stages without testing. CI runs the same script on real macOS (job "macOS test build": `macos-latest` on Apple Silicon without Docker, `macos-15-intel` with Colima and without Docker); it signs, uploads and publishes nothing. Docker Desktop is not available on hosted runners.
 
 `--test-only` tests the app already staged in `local-test/` without building again. The tests use their own data
