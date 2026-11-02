@@ -18,6 +18,10 @@ out=$1
 here=$(cd "$(dirname "$0")/.." && pwd)
 source_ref=${2:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["nodestro-studio"])' "$here/studio.json")}
 python_version=${PYTHON_VERSION:-3.13}
+# pip must see only the bundle: packages in the builder's user site (~/.local/lib/python3.13 on Linux,
+# ~/Library/Python/3.13 on macOS) or on PYTHONPATH would count as installed and be left out of the bundle.
+export PYTHONNOUSERSITE=1
+unset PYTHONPATH PYTHONHOME
 rm -rf "$out"
 mkdir -p "$out"
 uv python install "$python_version" --install-dir "$out/.pythons" --no-bin >/dev/null
