@@ -146,7 +146,7 @@ check "the backend process runs (pid ${backend_pid:-none})" "$(ok [ -n "$backend
 args=$(proc_args "$backend_pid")
 environment=$(proc_env "$backend_pid")
 echo "  backend command line: $args"
-check "the backend was started with --secrets-fd 0" "$(case "$args" in *"--secrets-fd 0"*) echo 0 ;; *) echo 1 ;; esac)"
+check "the backend was started with --secrets-fd 0" "$(ok grep -q -e "--secrets-fd 0" <<<"$args")"
 check "no secret on the backend's command line (no 64-hex value, not the vault key)" "$(holds_secret "$args")"
 check "no secret in the backend's environment (no NODESTRO_LAUNCH_SECRET or NODESTRO_VAULT_KEY, no value)" \
   "$(if grep -Eq "NODESTRO_(LAUNCH_SECRET|VAULT_KEY)" <<<"$environment"; then echo 1; else holds_secret "$environment"; fi)"
@@ -250,6 +250,11 @@ check "the API backend shut down cleanly" "$(grep -q "Application shutdown compl
 new_containers=$(docker_containers | grep -vxF -e "${containers_before:-none}" || true)
 check "no Docker container left behind ${new_containers:+($new_containers)}" "$(ok [ -z "$new_containers" ])"
 leftovers=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'nodestro-*' -newer "$work/tmp/started" 2>/dev/null | head -n 5)
+if [ -n "$leftovers" ]; then
+  # Name, size and age only, never contents: enough to tell what created them.
+  while IFS= read -r item; do find "$item" -maxdepth 2 -exec ls -ld {} \; 2>/dev/null; done <<<"$leftovers" |
+    head -n 20 | sed 's/^/    /'
+fi
 check "no temporary nodestro-* files left in ${TMPDIR:-/tmp} ${leftovers:+($leftovers)}" "$(ok [ -z "$leftovers" ])"
 check "the diagnostics hold neither test secret" \
   "$(grep -rqF -e "$secret" -e "$canary" "$diag" && echo 1 || echo 0)"
