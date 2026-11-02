@@ -77,7 +77,10 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
 
 - **Priority:** P2 Medium · **Status:** Needs decision · **Refs:** README status, ADR-0005 in nodestro-studio
 - **What:** Only Linux x86_64 is built. The shell and the keychain code already target macOS and Windows, but there
-  are no runners, no bundle and no sandbox story for them (AI-generated tools would need Docker there).
+  are no runners and no bundle. Since 2026-11-02 the runtime and the studio start on macOS (arm64, x86-64) and
+  Windows (x64, ARM64) in CI, and the studio's `auto` sandbox mode uses Docker there for AI-generated tools and
+  explains when they are blocked (ADR-0009 in nodestro-studio). The macOS sandbox of Orkexa is experimental and not
+  used; Windows has no native sandbox. Without Docker, AI-generated tools stay blocked on both.
 - **Next step:** Owner decides on platforms and runners; then add build and smoke jobs. Depends on DSK-003.
 
 ### DSK-005 · Updates
