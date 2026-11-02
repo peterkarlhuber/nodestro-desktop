@@ -1,7 +1,8 @@
 //! Nodestro Desktop: one window for the bundled studio backend.
 //!
 //! The window first shows its own start page, the backend starts on a free loopback port with a new
-//! per-launch secret (`NODESTRO_LAUNCH_SECRET`), and once `/api/health` answers the window opens the
+//! per-launch secret (handed over on its standard input, never in its environment or on its command line, see
+//! `backend`), and once `/api/health` answers the window opens the
 //! one-time launch URL, which the backend exchanges for a session cookie. Only this window can use the
 //! studio API afterwards. Closing the window stops the backend (SIGINT, killed after 10 s).
 //!
@@ -65,8 +66,9 @@ fn log_file(app: &tauri::AppHandle) -> PathBuf {
 /// How long the keychain may take (an unlock prompt nobody answers must not keep the backend from starting).
 const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// The MCP token vault key: the operator's `NODESTRO_VAULT_KEY` if set, otherwise the keychain's (created on first
-/// use). `None` (tokens kept for the session only) when the keychain cannot be used in time.
+/// The MCP token vault key: the operator's `NODESTRO_VAULT_KEY` if set for the shell, otherwise the keychain's
+/// (created on first use). `None` (tokens kept for the session only) when the keychain cannot be used in time. Either
+/// way the backend gets it through the handoff pipe; the variable is removed from the backend's environment.
 fn vault_key() -> Option<String> {
     if let Some(key) = std::env::var(vault::VAULT_KEY_ENV).ok().filter(|key| !key.trim().is_empty()) {
         return Some(key);
