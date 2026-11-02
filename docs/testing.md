@@ -55,6 +55,8 @@ DOCKER_HOST=unix:///nonexistent scripts/local_test_build.sh --test-only   # the 
 local-test/nodestro/nodestro-desktop        # start the test app by hand (uses ~/.nodestro)
 ```
 
+`--build-only` builds and stages without testing. CI runs the same script on real macOS (job "macOS test build": `macos-latest` on Apple Silicon without Docker, `macos-15-intel` with Colima and without Docker); it signs, uploads and publishes nothing. Docker Desktop is not available on hosted runners.
+
 `--test-only` tests the app already staged in `local-test/` without building again. The tests use their own data
 directories in `local-test/` (never `~/.nodestro`) and give the app a random test vault key through
 `NODESTRO_VAULT_KEY`, so the keychain is not touched. To test the keychain as well, start the app by hand (see the

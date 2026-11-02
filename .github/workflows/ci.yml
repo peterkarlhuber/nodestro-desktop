@@ -103,6 +103,64 @@ jobs:
           path: nodestro-linux-x86_64.tar.gz
           retention-days: 7
 
+  # A local, unsigned test build on real macOS (scripts/local_test_build.sh, docs/testing.md): the shell and the
+  # backend are built on the runner, the window starts the bundled backend, and the secret handover, Docker detection,
+  # the sandbox status, a person's tool, the refusal of untrusted code and the shutdown are checked. Nothing is signed,
+  # uploaded or published. macos-latest (Apple Silicon) has no Docker (no nested virtualization), so it tests the case
+  # without Docker; macos-15-intel also runs Colima (Docker Engine in a VM), where untrusted code must run in a proven
+  # container. Docker Desktop itself cannot be installed on hosted runners and stays a manual check.
+  macos-test-build:
+    name: macOS test build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            docker: false
+          - os: macos-15-intel
+            docker: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install --user --break-system-packages uv==0.13.1 && echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+      - name: Start Colima (macOS Intel)
+        if: matrix.docker
+        run: |
+          brew install colima docker
+          if ! colima start --cpu 3 --memory 6 --disk 40; then
+            colima delete --force || true
+            brew install qemu
+            colima start --vm-type qemu --cpu 3 --memory 6 --disk 40
+          fi
+          docker info
+      # The Nodestro components and orkexa are private: the token exists only in the build step's environment, never
+      # in the one that starts the app.
+      - name: Build and stage the test app
+        env:
+          NODESTRO_READ: ${{ secrets.NODESTRO_READ }}
+        run: |
+          if [ -z "$NODESTRO_READ" ]; then
+            echo "::error::Secret NODESTRO_READ is missing: a token with read access to orkexa and the nodestro repositories."
+            exit 1
+          fi
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="url.https://x-access-token:${NODESTRO_READ}@github.com/peterkarlhuber/.insteadOf"
+          export GIT_CONFIG_VALUE_0="https://github.com/peterkarlhuber/"
+          scripts/local_test_build.sh --build-only "$RUNNER_TEMP/local-test"
+      - name: Test with Docker (Colima)
+        if: matrix.docker
+        run: scripts/local_test_build.sh --test-only "$RUNNER_TEMP/local-test"
+      - name: Test without Docker
+        env:
+          DOCKER_HOST: unix:///nonexistent
+        run: scripts/local_test_build.sh --test-only "$RUNNER_TEMP/local-test"
+
   # The archive from the app job on real Ubuntu 24.04 and Debian 13 machines: built-in sandbox and window.
   systems:
     needs: app

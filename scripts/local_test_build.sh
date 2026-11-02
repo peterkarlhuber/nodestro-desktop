@@ -3,6 +3,7 @@
 #
 #   scripts/local_test_build.sh [work-dir]               build the shell and the backend, stage the app, test it
 #   scripts/local_test_build.sh --test-only [work-dir]   test the app already staged in work-dir
+#   scripts/local_test_build.sh --build-only [work-dir]  build and stage only (CI builds with a token, tests without)
 #
 # work-dir defaults to ./local-test (ignored by git). It never signs, notarizes, uploads or publishes anything and
 # never touches ~/.nodestro or the keychain: the tests use their own data directories in work-dir, and the app gets a
@@ -21,8 +22,12 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 build=1
+test=1
 if [ "${1:-}" = --test-only ]; then
   build=0
+  shift
+elif [ "${1:-}" = --build-only ]; then
+  test=0
   shift
 fi
 work=${1:-$here/local-test}
@@ -49,6 +54,10 @@ if [ "$build" = 1 ]; then
 fi
 py="$app/backend/python/bin/python3"
 [ -x "$app/nodestro-desktop" ] && [ -x "$py" ] || { echo "no staged app in $app (run without --test-only)" >&2; exit 1; }
+if [ "$test" = 0 ]; then
+  echo "staged in $app (test with --test-only)"
+  exit 0
+fi
 
 rm -rf "$diag" "$work/data-app" "$work/data-api" "$work/tmp"
 mkdir -p "$diag" "$work/tmp"
