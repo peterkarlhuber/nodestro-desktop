@@ -3,7 +3,7 @@
 > Open work for this repository: release blockers, known bugs, security follow-ups, technical debt and planned improvements.
 > GitHub issues are the source of truth for details; this file is the entry point and summary.
 >
-> **Last full review:** 2026-11-03 against `master` at `01db86e` (backend audit round 2).
+> **Last full review:** 2026-11-03 against `master` at `c6d4eeb` (close-out of the backend audit round 2).
 
 ## Summary
 
@@ -212,6 +212,13 @@ None known beyond DSK-001.
 | DSK-011 | nodestro-server | `scripts/` (source copies) | Sync with |
 | DSK-013 | nodestro-server, nodestro-local-docker | SRV-016, LD-009 (pin distance warning) | Same check in all three |
 | DSK-010 | nodestro-runtime | RT-018 (built-in sandbox `TESTED_SYSTEMS`) | New systems must be validated there first |
+
+## CI access to private repositories
+
+Keep the repository secret `NODESTRO_READ`; do not delete it. CI currently installs the sibling repositories anonymously
+because they are public, and does not need the secret. When the repositories become private, CI authenticates again
+with this read-only secret, passed only in the environment of the install steps (never in a global Git configuration,
+a log or an image layer).
 
 ## Maintaining this file
 
