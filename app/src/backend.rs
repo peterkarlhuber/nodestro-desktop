@@ -61,10 +61,21 @@ pub fn open_log(log: &Path, rotate_bytes: u64) -> std::io::Result<File> {
         rotated.push(".1");
         let _ = fs::rename(log, rotated);
     }
-    private_file(OpenOptions::new().create(true).append(true)).open(log).or_else(|_| {
-        let name = format!("nodestro-desktop-backend-{}-{}.log", std::process::id(), &new_secret()[..16]);
-        private_file(OpenOptions::new().write(true).create_new(true)).open(std::env::temp_dir().join(name))
-    })
+    private_file(OpenOptions::new().create(true).append(true))
+        .open(log)
+        .and_then(|file| {
+            // The create mode does not apply to a log an older version left behind; tighten it on the open file.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            }
+            Ok(file)
+        })
+        .or_else(|_| {
+            let name = format!("nodestro-desktop-backend-{}-{}.log", std::process::id(), &new_secret()[..16]);
+            private_file(OpenOptions::new().write(true).create_new(true)).open(std::env::temp_dir().join(name))
+        })
 }
 
 /// How the backend is started: a program and the arguments before the command line options.
@@ -383,6 +394,21 @@ mod tests {
         file.write_all(b"third\n").unwrap();
         drop(file);
         assert_eq!(fs::read_to_string(&log).unwrap(), "second\nthird\n");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_readable_log_is_made_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("nodestro-desktop-test-oldlog-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("backend.log");
+        fs::write(&log, "left by an older version\n").unwrap();
+        fs::set_permissions(&log, fs::Permissions::from_mode(0o644)).unwrap();
+        drop(open_log(&log, LOG_ROTATE_BYTES).unwrap());
+        assert_eq!(fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::read_to_string(&log).unwrap(), "left by an older version\n");
         let _ = fs::remove_dir_all(dir);
     }
 

@@ -169,8 +169,9 @@ None known beyond DSK-001.
 
 - **Priority:** P4 Optional · **Status:** Open · **Refs:** backend audit round 2 OPS2-10
 - **What:** Since 2026-11-03 the backend log rotates at 10 MiB at start, is private (0600) and the fallback file has a
-  random name. Still open: the log can grow without limit during one long session, and the fallback folder in the
-  temporary directory has a predictable name.
+  random name; an existing log from an older version is made private when it is opened. Still open: the log can
+  grow without limit during one long session, and the fallback folder in the temporary directory has a predictable
+  name.
 - **Next step:** Rotate while running (size check in the log writer) and create the fallback folder with a random
   name and mode 0700.
 
