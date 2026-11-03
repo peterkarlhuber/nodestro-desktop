@@ -95,10 +95,9 @@ Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is reloc
   fallback to an unprotected process. Each tool call starts a new interpreter (about 0.13 to 0.19 s on the test
   machines).
 - A process of the same OS user can still read the data directory and, with debugging rights (`ptrace`), the
-  backend's memory; the secrets are no longer in any process's environment or command line. The handoff pipe works the
-  same on Windows (standard input), but only the Linux build exists and is tested.
-- A process of the same OS user can still read the data directory itself; the launch secret protects the API, not
-  the files.
+  backend's memory; the secrets are no longer in any process's environment or command line, and the launch secret
+  protects the API, not the files. The handoff pipe works the same on Windows (standard input), but only the Linux
+  build exists and is tested.
 - The keychain key is not stored next to the sealed tokens in the data directory; like the launch secret, it reaches
   the backend only through the handoff pipe (see "How it works").
 
@@ -106,7 +105,7 @@ Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is reloc
 
 ```sh
 (cd app && cargo build --release --locked)       # needs libwebkit2gtk-4.1-dev
-scripts/build_backend.sh /tmp/backend            # needs uv, Node.js and read access to the private repositories
+scripts/build_backend.sh /tmp/backend            # needs uv, Node.js and git (the component repositories are public)
 scripts/package_linux.sh app/target/release/nodestro-desktop /tmp/backend nodestro-linux-x86_64.tar.gz
 scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz   # needs Docker
 ```
