@@ -20,6 +20,9 @@ use crate::vault::VAULT_KEY_ENV;
 
 /// Overrides the backend command (development, tests): the path of a `nodestro` executable.
 pub const BACKEND_ENV: &str = "NODESTRO_BACKEND";
+/// The local model runtime (Ollama) bundled next to the backend, passed to it by path (not a secret): nodestro-runtime
+/// runs it as a managed child process (`docs/local-models.md`). An operator's own value is kept.
+pub const OLLAMA_ENV: &str = "NODESTRO_OLLAMA_BINARY";
 /// The operator's variable for the per-launch secret (`nodestro_api.launch`); removed from the backend's
 /// environment, which gets the secret through the handoff pipe instead.
 pub const SECRET_ENV: &str = "NODESTRO_LAUNCH_SECRET";
@@ -83,6 +86,15 @@ pub fn open_log(log: &Path, rotate_bytes: u64) -> std::io::Result<File> {
 pub struct Launcher {
     pub program: PathBuf,
     pub prefix: Vec<String>,
+    /// The bundled Ollama executable (`backend/ollama/...`, `scripts/fetch_ollama.py`), if the bundle has one.
+    pub ollama: Option<PathBuf>,
+}
+
+/// The Ollama executable in an unpacked release under `root` (the layouts of the Linux, macOS and Windows archives).
+pub fn bundled_ollama(root: &Path) -> Option<PathBuf> {
+    [root.join("bin").join("ollama"), root.join("ollama"), root.join("ollama.exe")]
+        .into_iter()
+        .find(|path| path.is_file())
 }
 
 /// The bundled interpreter next to this executable (`backend/python/bin/python3`, on Windows
@@ -95,11 +107,13 @@ pub struct Launcher {
 /// imported.
 pub fn backend_command(exe: &Path, override_: Option<String>) -> Launcher {
     if let Some(path) = override_.filter(|value| !value.is_empty()) {
-        return Launcher { program: PathBuf::from(path), prefix: Vec::new() };
+        return Launcher { program: PathBuf::from(path), prefix: Vec::new(), ollama: None };
     }
-    let python = exe.parent().unwrap_or(Path::new(".")).join("backend").join("python");
+    let backend = exe.parent().unwrap_or(Path::new(".")).join("backend");
+    let python = backend.join("python");
     let program = if cfg!(windows) { python.join("python.exe") } else { python.join("bin").join("python3") };
-    Launcher { program, prefix: vec!["-I".into(), "-m".into(), "nodestro_studio".into()] }
+    let ollama = bundled_ollama(&backend.join("ollama"));
+    Launcher { program, prefix: vec!["-I".into(), "-m".into(), "nodestro_studio".into()], ollama }
 }
 
 /// A JSON string literal of `value` (quotes, backslashes and control characters escaped).
@@ -198,6 +212,11 @@ impl Backend {
             .env_remove("NODESTRO_HOST")
             .env_remove("NODESTRO_ALLOWED_HOSTS")
             .stdin(Stdio::piped());
+        if let Some(ollama) = &command.ollama {
+            if std::env::var_os(OLLAMA_ENV).is_none() {
+                process.env(OLLAMA_ENV, ollama);
+            }
+        }
         process
     }
 
@@ -331,8 +350,31 @@ mod tests {
             assert_eq!(found.program, PathBuf::from("/opt/nodestro/backend/python/bin/python3"));
         }
         let named = backend_command(exe, Some("/x/nodestro".into()));
-        assert_eq!(named, Launcher { program: PathBuf::from("/x/nodestro"), prefix: Vec::new() });
+        assert_eq!(named, Launcher { program: PathBuf::from("/x/nodestro"), prefix: Vec::new(), ollama: None });
         assert_eq!(backend_command(exe, Some(String::new())), found);
+        assert_eq!(found.ollama, None, "no runtime in this bundle");
+    }
+
+    #[test]
+    fn the_bundled_ollama_is_passed_by_path() {
+        let dir = std::env::temp_dir().join(format!("nodestro-desktop-test-ollama-{}", std::process::id()));
+        let binary = dir.join("backend").join("ollama").join("bin").join("ollama");
+        fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        fs::write(&binary, b"").unwrap();
+        let launcher = backend_command(&dir.join("nodestro-desktop"), None);
+        assert_eq!(launcher.ollama.as_deref(), Some(binary.as_path()));
+        let process = Backend::command(&launcher, 4711, None);
+        let value = process.get_envs().find(|(name, _)| *name == std::ffi::OsStr::new(OLLAMA_ENV)).and_then(|(_, v)| v);
+        if std::env::var_os(OLLAMA_ENV).is_none() {
+            assert_eq!(value, Some(binary.as_os_str()));
+        } else {
+            assert_eq!(value, None, "an operator's own value is kept");
+        }
+        // Windows and macOS archives put the executable at the top.
+        fs::remove_dir_all(dir.join("backend").join("ollama").join("bin")).unwrap();
+        fs::write(dir.join("backend").join("ollama").join("ollama.exe"), b"").unwrap();
+        assert_eq!(bundled_ollama(&dir.join("backend").join("ollama")), Some(dir.join("backend/ollama/ollama.exe")));
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

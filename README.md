@@ -13,6 +13,7 @@ signed builds and no installer. `spike/` holds the packaging spike (plan PR-5) a
 | --- | --- |
 | Shell (Tauri 2, Rust): window, backend start and stop, navigation guard | `app/` |
 | Backend: relocatable CPython 3.13 with the studio at the commit in `studio.json` | `scripts/build_backend.sh` |
+| Local model runtime: Ollama of the pinned release, checked by SHA-256 (CPU and Vulkan, no CUDA libraries) | `scripts/fetch_ollama.py` |
 | Archive `nodestro-linux-x86_64.tar.gz` | `scripts/package_linux.sh` |
 | Clean-machine smoke test (Ubuntu 24.04 container without Python, Node.js, Rust or Docker) | `scripts/smoke_test.sh` |
 | Tests of the archive on real Ubuntu 24.04 and Debian 13 machines (KVM): built-in sandbox, window under Xvfb and in a GNOME Shell session | `.github/workflows/systems.yml`, `scripts/vm/` |
@@ -46,6 +47,16 @@ check both cases: without a keychain (session only) and with an unlocked GNOME K
 Data stays in `~/.nodestro` (or `NODESTRO_DATA_DIR`), shared with the `nodestro` command; only one of them can use a
 data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`.
 
+**Local models** run on the computer without an API key, through the bundled Ollama (`backend/ollama`, the
+release pinned in `scripts/fetch_ollama.py`, the same as `orkexa.local`). `build_backend.sh` downloads its archive
+(or takes `NODESTRO_OLLAMA_ARCHIVE` for an offline build), refuses it unless its SHA-256 is the pinned value from the
+release's `sha256sum.txt`, and leaves out the NVIDIA CUDA libraries (about 2.4 GB; the bundle keeps the CPU and
+Vulkan backends, about 120 MB). The shell passes the executable's path to the backend as `NODESTRO_OLLAMA_BINARY`
+(a path, not a secret; an operator's own value is kept). nodestro-runtime starts it as a managed child process on a
+free loopback port with its own home, its models in `~/.nodestro/local-models` and `OLLAMA_NO_CLOUD=1`, and never
+touches an Ollama the user runs already (nodestro-runtime `docs/local-models.md`). Models are downloaded or imported
+in the studio.
+
 **Amazon Bedrock (AWS)** has no API key in Nodestro. The backend uses the AWS credentials of the user's computer:
 the default chain (environment, `~/.aws/config` and `~/.aws/credentials`, AWS IAM Identity Center (SSO) after
 `aws sso login`, `credential_process`) or a named profile from `~/.aws/config`, chosen in Settings together with the
@@ -67,6 +78,7 @@ Behind a TLS-inspecting proxy, set `AWS_CA_BUNDLE` to its certificate bundle: th
 | Linux 6.7 or newer with Landlock (ABI 4) and seccomp, started as a normal user (not root) | the built-in sandbox for AI-generated tools (ADR-0006) | `systems.yml`: Ubuntu 24.04 (kernel 6.8, Landlock ABI 4, AppArmor restricts user namespaces) and Debian 13 (kernel 6.12, ABI 6) |
 | Docker (optional) | AI-generated tools on systems where the built-in sandbox is not available | |
 | About 260 MB of disk for the unpacked archive (74 MB download), plus the data directory | the bundled Python and the studio | `du` of the `v0.2.0-preview.1` candidate |
+| About 120 MB more for the local model runtime, plus several GB per local model; RAM for the model (8 GB or more for the smallest suggested one) | local models | `fetch_ollama.py` output; model sizes in nodestro-runtime `local_models.CATALOG` |
 
 Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is relocatable.
 
@@ -105,7 +117,8 @@ Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is reloc
 
 ```sh
 (cd app && cargo build --release --locked)       # needs libwebkit2gtk-4.1-dev
-scripts/build_backend.sh /tmp/backend            # needs uv, Node.js and git (the component repositories are public)
+scripts/build_backend.sh /tmp/backend            # needs uv, Node.js and git (the component repositories are public);
+                                                 # also fetches Ollama (zstd or the Python package zstandard on Linux)
 scripts/package_linux.sh app/target/release/nodestro-desktop /tmp/backend nodestro-linux-x86_64.tar.gz
 scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz   # needs Docker
 ```

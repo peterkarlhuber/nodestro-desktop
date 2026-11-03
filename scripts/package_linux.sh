@@ -3,7 +3,8 @@
 #
 #   scripts/package_linux.sh <shell-binary> <backend-dir> <output.tar.gz> [version]
 #
-# Layout: nodestro/nodestro-desktop, nodestro/backend/python/..., nodestro/README.txt, nodestro/VERSION,
+# Layout: nodestro/nodestro-desktop, nodestro/backend/python/..., nodestro/backend/ollama/... (the local model
+# runtime, scripts/fetch_ollama.py), nodestro/README.txt, nodestro/VERSION,
 # nodestro/LICENSES/ (Nodestro's license and the license texts of the Rust crates and npm packages it contains; the
 # Python packages keep theirs in their *.dist-info directories). Needs cargo for the crate list.
 # The README names the version, says the build is an unsigned preview and lists the system requirements.
@@ -18,6 +19,8 @@ mkdir -p "$stage/nodestro/backend"
 cp "$shell" "$stage/nodestro/nodestro-desktop"
 chmod 755 "$stage/nodestro/nodestro-desktop"
 cp -a "$backend/python" "$stage/nodestro/backend/python"
+test -x "$backend/ollama/bin/ollama" || { echo "no local model runtime in $backend/ollama (scripts/fetch_ollama.py)" >&2; exit 1; }
+cp -a "$backend/ollama" "$stage/nodestro/backend/ollama"
 echo "$version" >"$stage/nodestro/VERSION"
 here=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$stage/nodestro/LICENSES"
@@ -28,6 +31,8 @@ cat >"$stage/nodestro/LICENSES/README.txt" <<'TEXT'
 Nodestro is MIT licensed (LICENSE-nodestro.txt). It contains third-party software under its own licenses:
 - THIRD-PARTY-rust.txt: the Rust crates of the window (nodestro-desktop);
 - THIRD-PARTY-npm.txt: the npm packages built into the studio interface;
+- backend/ollama/LICENSE: Ollama (MIT), the local model runtime; the licenses of the libraries it contains
+  (llama.cpp, ggml and others) are in backend/ollama/lib/ollama/*LICENSE*;
 - backend/python/lib/python3.13/LICENSE.txt: CPython; each Python package's license is in its
   backend/python/lib/python3.13/site-packages/*.dist-info directory.
 The complete list with declared licenses is in release-manifest.json of the release.
@@ -46,6 +51,9 @@ AI-generated tools run in the built-in Linux sandbox (Landlock and seccomp; need
 Landlock enabled and a normal user, not root; tested on Ubuntu 24.04 and Debian 13). Nothing else to install.
 On other systems AI-generated tools are blocked unless Docker is available; they never run unprotected.
 See the user documentation, chapter "Tools".
+Local models: the bundled Ollama $(sed -n 's/^version=//p' "$backend/ollama/OLLAMA-RELEASE") (backend/ollama, CPU and Vulkan; no
+NVIDIA CUDA libraries) runs models on this computer without an API key. Models are downloaded or imported in the
+studio (Settings, local models) and stored in ~/.nodestro/local-models.
 TEXT
 tar -C "$stage" -czf "$archive" nodestro
 du -h "$archive"
