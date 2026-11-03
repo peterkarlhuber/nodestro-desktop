@@ -12,8 +12,8 @@
 | P0 Critical | 0 |
 | P1 High | 1 |
 | P2 Medium | 4 |
-| P3 Low | 8 |
-| P4 Optional | 3 |
+| P3 Low | 9 |
+| P4 Optional | 4 |
 
 **Release blockers:** DSK-001.
 
@@ -61,7 +61,15 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
 
 ## Bugs and reliability
 
-None known.
+### DSK-017 · Windows: starting and stopping the backend
+
+- **Priority:** P3 Low · **Status:** Open · **Refs:** `app/src/backend.rs` (`Backend::command`, `stop`), docs/testing.md
+- **What:** Found by reading the code; Windows is not built (DSK-004). The release shell is a GUI program
+  (`windows_subsystem = "windows"`) that starts the console program `python.exe` without `CREATE_NO_WINDOW`, so a
+  console window is expected next to the app. `stop` has no graceful path off Unix: `TerminateProcess` right away,
+  so the backend's shutdown (and stopping the processes it started) does not run.
+- **Next step:** Confirm on the first Windows test build; then start with `CREATE_NO_WINDOW` and stop gracefully
+  (for example a shutdown request on the loopback API or a console control event), killed after the timeout.
 
 ## Architecture and modularity
 
@@ -81,7 +89,14 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
   Windows (x64, ARM64) in CI, and the studio's `auto` sandbox mode uses Docker there for AI-generated tools and
   explains when they are blocked (ADR-0009 in nodestro-studio). The macOS sandbox of Orkexa is experimental and not
   used; Windows has no native sandbox. Without Docker, AI-generated tools stay blocked on both.
-- **Next step:** Owner decides on platforms and runners; then add build and smoke jobs. Depends on DSK-003.
+- **Local test builds (2026-11-02):** `scripts/local_test_build.sh` builds an unsigned test app from the pinned state
+  on macOS or Linux and checks start, secret handover, Docker detection, sandbox status, the refusal of untrusted
+  code and the shutdown ([docs/testing.md](testing.md)). It ran on Linux x86_64 only; it has not run on a Mac.
+  Windows has documented, untested steps (`build_backend.sh` assumes `python/bin/python3`). Cross-building is not
+  possible: `cargo check --target aarch64-apple-darwin` fails on Linux (Objective-C needs Apple's toolchain and SDK);
+  `cargo check --target x86_64-pc-windows-msvc` passes, but linking and the backend need Windows.
+- **Next step:** Run `scripts/local_test_build.sh` on an Apple-silicon and an Intel Mac and record the results; owner
+  decides on platforms and runners; then add build and smoke jobs. Depends on DSK-003 for anything distributed.
 
 ### DSK-005 · Updates
 
@@ -155,13 +170,22 @@ None known beyond DSK-001 and DSK-002.
   the pins resolve, not how far they lag behind the latest studio platform commit.
 - **Next step:** Add a CI warning for pin distance; keep pinning merge commits in every cascade.
 
+### DSK-018 · Probe bundle build can pick up the builder's user site
+
+- **Priority:** P4 Optional · **Status:** Open · **Refs:** `scripts/vm/build_probe_bundle.sh`
+- **What:** Like `build_backend.sh` before 2026-11-02, it runs the bundled `pip install` without `PYTHONNOUSERSITE`,
+  so packages in the builder's `~/.local/lib/python3.13` would count as installed and be missing from the bundle.
+  Harmless on clean CI runners, where it runs.
+- **Next step:** Set `PYTHONNOUSERSITE=1` there too.
+
 ## Later optimizations
 
 ### DSK-014 · Bundle size budget
 
 - **Priority:** P4 Optional · **Status:** Open · **Refs:** Bedrock deployment analysis section 1
 - **What:** The bundle is about 260 MB unpacked (botocore alone adds about 31 MB) and no size budget is enforced;
-  `package_linux.sh` only prints `du`.
+  `package_linux.sh` only prints `du`. A local build of studio `139bce3` (2026-11-02) is a 96 MB archive with a
+  299 MB interpreter directory, more than the README's figures for `v0.2.0-preview.1`.
 - **Next step:** Add a warning threshold to CI.
 
 ## Accepted risks
