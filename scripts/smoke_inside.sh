@@ -51,6 +51,8 @@ for tool in python3 node cargo docker; do
 done
 useradd --create-home person
 tar -xzf /tmp/nodestro.tar.gz -C /opt
+# The bundled local model runtime runs on the clean machine (its client prints the version; it starts no server).
+/opt/nodestro/backend/ollama/bin/ollama --version 2>&1 | grep -q "0\.40\.14" || { echo "the bundled Ollama does not run" >&2; exit 1; }
 su person -s /bin/bash -c "bash /tmp/smoke_inside.sh as-user"
 if pgrep -f nodestro_studio >/dev/null; then
   echo "a backend process was left behind" >&2

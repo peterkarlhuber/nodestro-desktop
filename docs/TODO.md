@@ -12,7 +12,7 @@
 | P0 Critical | 0 |
 | P1 High | 1 |
 | P2 Medium | 3 |
-| P3 Low | 8 |
+| P3 Low | 10 |
 | P4 Optional | 5 |
 
 **Release blockers:** DSK-001.
@@ -185,6 +185,22 @@ None known beyond DSK-001.
   299 MB interpreter directory, more than the README's figures for `v0.2.0-preview.1`.
 - **Next step:** Add a warning threshold to CI.
 
+### DSK-020 · GPU libraries for the bundled local model runtime
+
+- **Priority:** P3 Low · **Status:** Open · **Refs:** `scripts/fetch_ollama.py`, nodestro-runtime `docs/local-models.md`
+- **What:** The Linux bundle leaves out Ollama's NVIDIA CUDA libraries (about 2.4 GB), so NVIDIA GPUs are not used
+  (Vulkan and the CPU are). Inference speed on real desktops with and without a GPU was not measured, and the macOS
+  bundle (Metal) is built only by the macOS test build.
+- **Next step:** Decide between an optional GPU download in the studio (orkexa's `install_runtime(gpu=True)` into the
+  data directory) and a separate GPU archive; measure on real hardware.
+
+### DSK-021 · The local model runtime in the release manifest
+
+- **Priority:** P3 Low · **Status:** Open · **Refs:** `scripts/release_manifest.py` (synced with nodestro-server, DSK-011)
+- **What:** The archive names the bundled Ollama in `backend/ollama/OLLAMA-RELEASE` (version, archive, SHA-256) and
+  ships its license, but `release-manifest.json` does not list it as a component yet.
+- **Next step:** Add bundled binaries to the manifest in nodestro-server's copy first, then sync.
+
 ## Accepted risks
 
 ### DSK-015 · Same-user processes can read the data directory
@@ -210,6 +226,8 @@ None known beyond DSK-001.
 |---|---|---|---|
 | DSK-001 | nodestro-studio | ST-027 (`platform/versions.json` `products` still names the withdrawn candidate), ST-018 (RELEASES.md and IMPLEMENTATION_STATUS.md not updated after the sandbox) | Update together |
 | DSK-011 | nodestro-server | `scripts/` (source copies) | Sync with |
+| DSK-021 | nodestro-server | `scripts/release_manifest.py` | Change there first |
+| DSK-020 | nodestro-runtime, orkexa | `local_service.py`, `orkexa.local.install` (same Ollama pin, checked by `fetch_ollama.py --check-against`) | Keep the pins equal |
 | DSK-013 | nodestro-server, nodestro-local-docker | SRV-016, LD-009 (pin distance warning) | Same check in all three |
 | DSK-010 | nodestro-runtime | RT-018 (built-in sandbox `TESTED_SYSTEMS`) | New systems must be validated there first |
 

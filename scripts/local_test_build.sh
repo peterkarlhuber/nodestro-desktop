@@ -57,6 +57,7 @@ if [ "$build" = 1 ]; then
   mkdir -p "$app/backend"
   cp "$here/app/target/release/nodestro-desktop" "$app/nodestro-desktop"
   cp -a "$work/backend/python" "$app/backend/python"
+  if [ -d "$work/backend/ollama" ]; then cp -a "$work/backend/ollama" "$app/backend/ollama"; fi
   echo "local-test-$(git -C "$here" rev-parse --short HEAD)" >"$app/VERSION"
   # The token that read the private components (CI) must not end up in the app, e.g. in a direct_url.json.
   # (The export instructions in nodestro_api mention "x-access-token:<TOKEN>", a placeholder; a real value is not.)

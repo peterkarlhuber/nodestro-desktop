@@ -13,6 +13,10 @@
 # 4. pip, build tools and caches are removed; import checks prove the studio and the Amazon Bedrock provider
 #    (boto3, botocore's service models) are in the bundle. The app starts `python/bin/python3 -I -m nodestro_studio`,
 #    never the generated `nodestro` script (it names the interpreter by its build-time path).
+# 5. The local model runtime: Ollama of the pinned release (scripts/fetch_ollama.py: SHA-256 against the release's
+#    pinned checksum, CPU and Vulkan backends without the CUDA libraries) in <output-dir>/ollama. The app passes its
+#    executable to the backend as NODESTRO_OLLAMA_BINARY. NODESTRO_OLLAMA_ARCHIVE and NODESTRO_OLLAMA_LICENSE name
+#    local files for an offline build; NODESTRO_BUNDLE_OLLAMA=0 leaves it out (development builds only).
 set -euo pipefail
 out=$1
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -54,3 +58,10 @@ find "$out/python" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/n
 # The Amazon Bedrock provider and botocore's service models (its data files) are in the bundle (-B: no byte code).
 "$out/python/bin/python3" -I -B -c "import boto3, botocore.session, orkexa.providers.bedrock; s = botocore.session.get_session(); [s.get_service_model(n) for n in ('bedrock-runtime', 'bedrock', 'sts')]"
 du -sh "$out/python"
+if [ "${NODESTRO_BUNDLE_OLLAMA:-1}" != 0 ]; then
+  fetch=(python3 -I "$here/scripts/fetch_ollama.py" "$out" --check-against "$out/python/bin/python3")
+  if [ -n "${NODESTRO_OLLAMA_ARCHIVE:-}" ]; then fetch+=(--archive "$NODESTRO_OLLAMA_ARCHIVE"); fi
+  if [ -n "${NODESTRO_OLLAMA_LICENSE:-}" ]; then fetch+=(--license "$NODESTRO_OLLAMA_LICENSE"); fi
+  "${fetch[@]}"
+  du -sh "$out/ollama"
+fi
