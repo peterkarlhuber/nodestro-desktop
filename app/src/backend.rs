@@ -37,6 +37,36 @@ pub fn new_secret() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// A backend log larger than this is moved to `<log>.1` (replacing the previous one) when the backend starts.
+pub const LOG_ROTATE_BYTES: u64 = 10 * 1024 * 1024;
+
+fn private_file(options: &mut OpenOptions) -> &mut OpenOptions {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+}
+
+/// The backend's log file: `log`, rotated once it exceeds `rotate_bytes`, readable by the user only. If it cannot be
+/// opened, a new file with an unpredictable name in the temporary directory (never an existing file or a link
+/// someone placed there).
+pub fn open_log(log: &Path, rotate_bytes: u64) -> std::io::Result<File> {
+    if let Some(parent) = log.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if fs::symlink_metadata(log).map(|meta| meta.is_file() && meta.len() > rotate_bytes).unwrap_or(false) {
+        let mut rotated = log.as_os_str().to_owned();
+        rotated.push(".1");
+        let _ = fs::rename(log, rotated);
+    }
+    private_file(OpenOptions::new().create(true).append(true)).open(log).or_else(|_| {
+        let name = format!("nodestro-desktop-backend-{}-{}.log", std::process::id(), &new_secret()[..16]);
+        private_file(OpenOptions::new().write(true).create_new(true)).open(std::env::temp_dir().join(name))
+    })
+}
+
 /// How the backend is started: a program and the arguments before the command line options.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Launcher {
@@ -171,15 +201,7 @@ impl Backend {
         log: &Path,
     ) -> Result<Backend, StartError> {
         let secret = new_secret();
-        if let Some(parent) = log.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let output = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log)
-            .or_else(|_| File::create(std::env::temp_dir().join("nodestro-desktop-backend.log")))
-            .map_err(|error| StartError::Missing(error.to_string()))?;
+        let output = open_log(log, LOG_ROTATE_BYTES).map_err(|error| StartError::Missing(error.to_string()))?;
         let errors = output.try_clone().map_err(|error| StartError::Missing(error.to_string()))?;
         let mut child = Self::command(command, port, data_dir)
             .stdout(output)
@@ -334,6 +356,57 @@ mod tests {
         .unwrap();
         assert!(matches!(error, StartError::Missing(_)));
         let _ = fs::remove_file(log);
+    }
+
+    #[test]
+    fn a_large_log_is_rotated_and_the_log_is_private() {
+        let dir = std::env::temp_dir().join(format!("nodestro-desktop-test-log-{}", std::process::id()));
+        let log = dir.join("logs").join("backend.log");
+        let mut file = open_log(&log, 8).unwrap();
+        file.write_all(b"first run, longer than eight bytes\n").unwrap();
+        drop(file);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        let mut file = open_log(&log, 8).unwrap();
+        file.write_all(b"second\n").unwrap();
+        drop(file);
+        assert_eq!(
+            fs::read_to_string(dir.join("logs").join("backend.log.1")).unwrap(),
+            "first run, longer than eight bytes\n"
+        );
+        assert_eq!(fs::read_to_string(&log).unwrap(), "second\n");
+        // Below the limit the log is appended to.
+        let mut file = open_log(&log, 1024).unwrap();
+        file.write_all(b"third\n").unwrap();
+        drop(file);
+        assert_eq!(fs::read_to_string(&log).unwrap(), "second\nthird\n");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_unusable_log_falls_back_to_a_new_private_file() {
+        let dir = std::env::temp_dir().join(format!("nodestro-desktop-test-fallback-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        // A directory where the log file should be: it cannot be opened as a file.
+        let log = dir.join("backend.log");
+        fs::create_dir_all(&log).unwrap();
+        let mut file = open_log(&log, LOG_ROTATE_BYTES).unwrap();
+        file.write_all(b"x").unwrap();
+        assert!(log.is_dir());
+        let prefix = format!("nodestro-desktop-backend-{}-", std::process::id());
+        let fallbacks: Vec<_> = fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+            .collect();
+        assert!(!fallbacks.is_empty());
+        for entry in fallbacks {
+            let _ = fs::remove_file(entry.path());
+        }
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
