@@ -43,19 +43,8 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
-      # The Nodestro components and orkexa are private: git and pip clone them with a token that can read them.
-      # The token exists only in this step's environment: no global Git configuration, nothing for later steps.
       - name: Build the backend from the pinned studio commit
-        env:
-          NODESTRO_READ: ${{ secrets.NODESTRO_READ }}
         run: |
-          if [ -z "$NODESTRO_READ" ]; then
-            echo "::error::Secret NODESTRO_READ is missing: a token with read access to orkexa and the nodestro repositories."
-            exit 1
-          fi
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0="url.https://x-access-token:${NODESTRO_READ}@github.com/peterkarlhuber/.insteadOf"
-          export GIT_CONFIG_VALUE_0="https://github.com/peterkarlhuber/"
           scripts/build_backend.sh "$RUNNER_TEMP/backend"
       - name: Package
         run: |
@@ -71,8 +60,6 @@ jobs:
             --platform linux-x86_64 "release/nodestro-desktop-${VERSION}-linux-x86_64.tar.gz"
           python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["version"], m["channel"], "unknown licenses:", m["licenses"]["unknown"])' release/release-manifest.json
       - name: Scan the release files for secrets
-        env:
-          NODESTRO_SCAN_SECRETS: ${{ secrets.NODESTRO_READ }}
         run: python3 -I scripts/scan_secrets.py release
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
