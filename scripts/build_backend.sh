@@ -6,8 +6,8 @@
 # The studio commit defaults to the one in studio.json. The studio pins every component by full commit SHA.
 # 1. uv fetches a python-build-standalone CPython 3.13 (the build uv pins, with checksums).
 # 2. The studio is checked out, its interface is built (Node.js is a build-time tool only), and its wheel
-#    is installed into that interpreter. pip clones the private component repositories, so the build
-#    needs read access (in CI: the NODESTRO_READ secret, never printed). Nothing is fetched at run time.
+#    is installed into that interpreter. pip clones the public component repositories anonymously (no token).
+#    Nothing is fetched at run time.
 # 3. The studio commit, its versions.json and package-lock.json go to <output-dir>/meta for the release manifest,
 #    and the license texts of the interface's npm packages to <output-dir>/meta/npm-licenses.txt for the archive.
 # 4. pip, build tools and caches are removed; import checks prove the studio and the Amazon Bedrock provider

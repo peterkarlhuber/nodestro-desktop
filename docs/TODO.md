@@ -3,7 +3,7 @@
 > Open work for this repository: release blockers, known bugs, security follow-ups, technical debt and planned improvements.
 > GitHub issues are the source of truth for details; this file is the entry point and summary.
 >
-> **Last full review:** 2026-11-01 against `master` at `58e9a1f`.
+> **Last full review:** 2026-11-03 against `master` at `01db86e` (backend audit round 2).
 
 ## Summary
 
@@ -11,9 +11,9 @@
 |---|---|
 | P0 Critical | 0 |
 | P1 High | 1 |
-| P2 Medium | 4 |
-| P3 Low | 9 |
-| P4 Optional | 4 |
+| P2 Medium | 3 |
+| P3 Low | 8 |
+| P4 Optional | 5 |
 
 **Release blockers:** DSK-001.
 
@@ -44,13 +44,6 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
   update the README status. Publishing needs the owner's explicit approval.
 
 ## Security
-
-### DSK-002 · CI must not require the `NODESTRO_READ` secret
-
-- **Priority:** P2 Medium · **Status:** Open · **Refs:** #17, backend audit D-08; same change in runtime #75 (RT-029)
-- **What:** `ci.yml` and `release.yml` fail without the secret although all component repositories are public, so
-  Dependabot PRs #10 and #11 can never pass. README, `build_backend.sh` and CI comments still say "private".
-- **Next step:** Make the token optional and correct the texts (see #17).
 
 ### DSK-003 · Code signing and notarization
 
@@ -122,10 +115,10 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
 
 ### DSK-008 · Dependabot updates (getrandom 0.4, GitHub Actions group)
 
-- **Priority:** P3 Low · **Status:** Blocked (on DSK-002) · **Refs:** #10, #11
+- **Priority:** P3 Low · **Status:** Open (CI needs no secret since 2026-11-03) · **Refs:** #10, #11
 - **What:** #10 is a breaking-version bump of `getrandom` (0.3 to 0.4) used for the launch secret; #11 updates four
   actions. Both fail only in the `app` job because the secret is missing.
-- **Next step:** Re-run after DSK-002; review the getrandom API change and the actions' release notes; merge if green.
+- **Next step:** Re-run #10 and #11; review the getrandom API change and the actions' release notes; merge if green.
 
 ### DSK-009 · Smoke and window test gaps
 
@@ -147,7 +140,7 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
 
 ## Documentation
 
-None known beyond DSK-001 and DSK-002.
+None known beyond DSK-001.
 
 ## Technical debt
 
@@ -156,12 +149,6 @@ None known beyond DSK-001 and DSK-002.
 - **Priority:** P3 Low · **Status:** Open · **Refs:** #18, backend audit D-15
 - **What:** Four scripts are byte-identical copies of nodestro-server's; nothing keeps them in sync.
 - **Next step:** Fetch them from the pinned server commit or compare checksums in CI (see #18).
-
-### DSK-012 · Committed bytecode cache
-
-- **Priority:** P3 Low · **Status:** Open · **Refs:** `scripts/__pycache__/scan_secrets.cpython-313.pyc`
-- **What:** A `.pyc` file is tracked in git, and `.gitignore` has no `__pycache__/` entry.
-- **Next step:** Remove it and add `__pycache__/` to `.gitignore`.
 
 ### DSK-013 · Warn when the pinned studio falls behind
 
@@ -177,6 +164,15 @@ None known beyond DSK-001 and DSK-002.
   so packages in the builder's `~/.local/lib/python3.13` would count as installed and be missing from the bundle.
   Harmless on clean CI runners, where it runs.
 - **Next step:** Set `PYTHONNOUSERSITE=1` there too.
+
+### DSK-019 · Backend log within one session and the fallback log folder
+
+- **Priority:** P4 Optional · **Status:** Open · **Refs:** backend audit round 2 OPS2-10
+- **What:** Since 2026-11-03 the backend log rotates at 10 MiB at start, is private (0600) and the fallback file has a
+  random name. Still open: the log can grow without limit during one long session, and the fallback folder in the
+  temporary directory has a predictable name.
+- **Next step:** Rotate while running (size check in the log writer) and create the fallback folder with a random
+  name and mode 0700.
 
 ## Later optimizations
 
@@ -215,7 +211,6 @@ None known beyond DSK-001 and DSK-002.
 | DSK-011 | nodestro-server | `scripts/` (source copies) | Sync with |
 | DSK-013 | nodestro-server, nodestro-local-docker | SRV-016, LD-009 (pin distance warning) | Same check in all three |
 | DSK-010 | nodestro-runtime | RT-018 (built-in sandbox `TESTED_SYSTEMS`) | New systems must be validated there first |
-| DSK-002 | all component repositories | `NODESTRO_READ` CI change (runtime RT-029) | Same change everywhere |
 
 ## Maintaining this file
 
