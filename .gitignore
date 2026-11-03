@@ -5,3 +5,5 @@ dist/
 build/
 app/gen/
 local-test/
+__pycache__/
+*.pyc
