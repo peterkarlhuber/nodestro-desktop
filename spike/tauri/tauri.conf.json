@@ -8,5 +8,5 @@
     "windows": [],
     "security": { "csp": null }
   },
-  "bundle": { "active": false }
+  "bundle": { "active": false, "icon": ["../../app/icons/icon.png"] }
 }

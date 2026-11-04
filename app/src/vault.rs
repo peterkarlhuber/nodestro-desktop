@@ -1,15 +1,16 @@
 //! The key that seals MCP tokens on the desktop (ADR-0007 decision D-3).
 //!
-//! The backend encrypts the tokens of connected MCP services with `NODESTRO_VAULT_KEY` (32 random bytes, base64). The
-//! key lives in the operating system's keychain (Secret Service on Linux, Keychain on macOS, Credential Manager on
-//! Windows); the first start creates it. It is handed to the backend in its environment, never on the command line,
-//! and never written to a file or a log.
+//! The backend encrypts the tokens of connected MCP services with this key (32 random bytes, base64). The key lives in
+//! the operating system's keychain (Secret Service on Linux, Keychain on macOS, Credential Manager on Windows); the
+//! first start creates it. It is handed to the backend through the handoff pipe on its standard input (see
+//! `backend`), never in its environment or on the command line, and never written to a file or a log.
 //!
 //! Without a usable keychain (no Secret Service running, access refused, a locked keychain that stays locked) the
 //! backend gets no key and keeps tokens for the session only: there is no plain-text fallback. A key that was lost
 //! from the keychain makes the stored tokens unreadable (the backend then asks for them again); it never reveals them.
 
-/// The variable through which the backend receives the key (`nodestro_runtime.mcp.vault`).
+/// The operator's variable for the key (`nodestro_runtime.mcp.vault`): read by the shell as an override and removed
+/// from the backend's environment.
 pub const VAULT_KEY_ENV: &str = "NODESTRO_VAULT_KEY";
 /// The keychain entry: service and account name.
 const SERVICE: &str = "Nodestro";

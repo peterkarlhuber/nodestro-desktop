@@ -13,12 +13,18 @@ signed builds and no installer. `spike/` holds the packaging spike (plan PR-5) a
 | --- | --- |
 | Shell (Tauri 2, Rust): window, backend start and stop, navigation guard | `app/` |
 | Backend: relocatable CPython 3.13 with the studio at the commit in `studio.json` | `scripts/build_backend.sh` |
+| Local model runtime: Ollama of the pinned release, checked by SHA-256 (CPU and Vulkan, no CUDA libraries) | `scripts/fetch_ollama.py` |
 | Archive `nodestro-linux-x86_64.tar.gz` | `scripts/package_linux.sh` |
 | Clean-machine smoke test (Ubuntu 24.04 container without Python, Node.js, Rust or Docker) | `scripts/smoke_test.sh` |
 | Tests of the archive on real Ubuntu 24.04 and Debian 13 machines (KVM): built-in sandbox, window under Xvfb and in a GNOME Shell session | `.github/workflows/systems.yml`, `scripts/vm/` |
 
-1. The window shows its own start page and starts `backend/python/bin/python3 -I -m nodestro_studio` on a free
-   loopback port with a new 256-bit secret in `NODESTRO_LAUNCH_SECRET` (never on the command line).
+1. The window shows its own start page and starts `backend/python/bin/python3 -I -m nodestro_studio --secrets-fd 0`
+   on a free loopback port with a new 256-bit secret. The secret goes through a pipe on the backend's standard input,
+   never into its environment or onto its command line, which every process of the same OS user can read
+   (`/proc/<pid>/environ` on Linux, `sysctl` `KERN_PROCARGS2` on macOS): the shell writes one JSON object
+   `{"launch_secret": …, "vault_key": … | null}` and closes the pipe; the backend reads it first, replaces its standard
+   input by the null device and keeps the values in memory only (`nodestro_api.handoff`), so no process it starts
+   inherits them. `NODESTRO_LAUNCH_SECRET` and `NODESTRO_VAULT_KEY` are removed from the backend's environment.
 2. When `/api/health` answers, the window opens `/api/launch?token=…` once. The backend exchanges it for an
    `HttpOnly`, `SameSite=Strict` session cookie (`nodestro_api.launch`); every other request without that cookie is
    refused, so other programs, other users of the computer and web pages cannot use the studio API. The token is
@@ -30,15 +36,36 @@ signed builds and no installer. `spike/` holds the packaging spike (plan PR-5) a
 
 **Tokens of connected MCP services** are sealed with a key from the operating system's keychain (ADR-0007 D-3; Secret
 Service such as GNOME Keyring or KWallet on Linux). The first start creates the key (32 random bytes, entry
-"Nodestro" / `mcp-token-vault-key`); the shell hands it to the backend as `NODESTRO_VAULT_KEY` in its environment,
-never on the command line, in a file or in a log (`app/src/vault.rs`). Without a usable keychain within 15 s (none
+"Nodestro" / `mcp-token-vault-key`); the shell hands it to the backend in the same pipe as the launch secret, never
+in its environment, on the command line, in a file or in a log (`app/src/vault.rs`). Without a usable keychain within 15 s (none
 running, access refused, an unlock prompt left open) the backend gets no key and keeps tokens for the current session
-only; there is no plain-text fallback. A `NODESTRO_VAULT_KEY` set by the operator takes precedence. If the keychain
+only; there is no plain-text fallback. A `NODESTRO_VAULT_KEY` set by the operator for the shell takes precedence (and is handed over through the pipe as
+well). If the keychain
 entry is deleted, stored tokens become unreadable and have to be entered again. The packaged-app tests on Ubuntu 24.04 and Debian 13
 check both cases: without a keychain (session only) and with an unlocked GNOME Keyring (key stored once, reused).
 
 Data stays in `~/.nodestro` (or `NODESTRO_DATA_DIR`), shared with the `nodestro` command; only one of them can use a
 data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`.
+
+**Local models** run on the computer without an API key, through the bundled Ollama (`backend/ollama`, the
+release pinned in `scripts/fetch_ollama.py`, the same as `orkexa.local`). `build_backend.sh` downloads its archive
+(or takes `NODESTRO_OLLAMA_ARCHIVE` for an offline build), refuses it unless its SHA-256 is the pinned value from the
+release's `sha256sum.txt`, and leaves out the NVIDIA CUDA libraries (about 2.4 GB; the bundle keeps the CPU and
+Vulkan backends, about 120 MB). The shell passes the executable's path to the backend as `NODESTRO_OLLAMA_BINARY`
+(a path, not a secret; an operator's own value is kept). nodestro-runtime starts it as a managed child process on a
+free loopback port with its own home, its models in `~/.nodestro/local-models` and `OLLAMA_NO_CLOUD=1`, and never
+touches an Ollama the user runs already (nodestro-runtime `docs/local-models.md`). Models are downloaded or imported
+in the studio.
+
+**Amazon Bedrock (AWS)** has no API key in Nodestro. The backend uses the AWS credentials of the user's computer:
+the default chain (environment, `~/.aws/config` and `~/.aws/credentials`, AWS IAM Identity Center (SSO) after
+`aws sso login`, `credential_process`) or a named profile from `~/.aws/config`, chosen in Settings together with the
+region. Nodestro stores only the region, the profile name and the data residency choice, never AWS keys. When the app
+is started from a desktop launcher, variables exported in a shell profile (`~/.bashrc`: `AWS_PROFILE`, `AWS_REGION`)
+are not set, so choose an explicit profile name in Settings instead of relying on `AWS_PROFILE`. AI-generated tools
+cannot read `~/.aws` (the built-in sandbox forbids the home directory). Network access needed: `bedrock-runtime.<region>`,
+`bedrock.<region>` and `sts.<region>.amazonaws.com`, and for SSO `oidc.<region>` and `portal.sso.<region>.amazonaws.com`.
+Behind a TLS-inspecting proxy, set `AWS_CA_BUNDLE` to its certificate bundle: the AWS SDK ignores `SSL_CERT_FILE`.
 
 ## System requirements (tested)
 
@@ -51,6 +78,7 @@ data directory at a time. The backend log is `~/.local/share/org.nodestro.deskto
 | Linux 6.7 or newer with Landlock (ABI 4) and seccomp, started as a normal user (not root) | the built-in sandbox for AI-generated tools (ADR-0006) | `systems.yml`: Ubuntu 24.04 (kernel 6.8, Landlock ABI 4, AppArmor restricts user namespaces) and Debian 13 (kernel 6.12, ABI 6) |
 | Docker (optional) | AI-generated tools on systems where the built-in sandbox is not available | |
 | About 260 MB of disk for the unpacked archive (74 MB download), plus the data directory | the bundled Python and the studio | `du` of the `v0.2.0-preview.1` candidate |
+| About 120 MB more for the local model runtime, plus several GB per local model; RAM for the model (8 GB or more for the smallest suggested one) | local models | `fetch_ollama.py` output; model sizes in nodestro-runtime `local_models.CATALOG` |
 
 Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is relocatable.
 
@@ -78,23 +106,38 @@ Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is reloc
   normal user; elsewhere AI-generated tools need Docker or stay blocked, with the reason in Settings. There is no
   fallback to an unprotected process. Each tool call starts a new interpreter (about 0.13 to 0.19 s on the test
   machines).
-- The secret reaches the backend through its environment: a process of the same OS user could read the initial
-  environment, but the secret is useless once the window has used it.
-- A process of the same OS user can still read the data directory itself; the launch secret protects the API, not
-  the files.
-- The keychain key, like the launch secret, reaches the backend through its environment, which processes of the same
-  OS user can read; it is not stored next to the sealed tokens in the data directory.
+- A process of the same OS user can still read the data directory and, with debugging rights (`ptrace`), the
+  backend's memory; the secrets are no longer in any process's environment or command line, and the launch secret
+  protects the API, not the files. The handoff pipe works the same on Windows (standard input), but only the Linux
+  build exists and is tested.
+- The keychain key is not stored next to the sealed tokens in the data directory; like the launch secret, it reaches
+  the backend only through the handoff pipe (see "How it works").
 
 ## Build
 
 ```sh
 (cd app && cargo build --release --locked)       # needs libwebkit2gtk-4.1-dev
-scripts/build_backend.sh /tmp/backend            # needs uv, Node.js and read access to the private repositories
+scripts/build_backend.sh /tmp/backend            # needs uv, Node.js and git (the component repositories are public);
+                                                 # also fetches Ollama (zstd or the Python package zstandard on Linux)
 scripts/package_linux.sh app/target/release/nodestro-desktop /tmp/backend nodestro-linux-x86_64.tar.gz
 scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz   # needs Docker
 ```
 
 For development, `NODESTRO_BACKEND=<path of a nodestro command>` replaces the bundled backend.
+
+**Local test builds** (unsigned, never published) on Linux and macOS: `scripts/local_test_build.sh` builds the shell
+and the backend from the pinned state, stages the app in `local-test/` and checks the start, the secret handover,
+Docker detection, the sandbox status, refusing AI-generated code without an approved sandbox and the shutdown.
+Prerequisites, expected results, the untested Windows steps and which diagnostics to send are in
+[docs/testing.md](docs/testing.md).
+
+**Logo and icons.** `branding/` holds the official Nodestro logo masters (`nodestro-logo-transparent.png`,
+`nodestro-logo-white.png`, kept unchanged). `scripts/build_branding.sh` derives everything else from them with
+`scripts/derive_branding.py` (the shared brand kit's script, vendored unchanged): the Tauri icons in `app/icons/`
+(`32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.png`, `icon.ico`, `icon.icns`, listed in `bundle.icon` of
+`app/tauri.conf.json`) and the start page's logo in light and dark (`app/ui/nodestro-logo.png`,
+`nodestro-logo-on-dark.png`). `icons/icon.png` (512 px) comes first in `bundle.icon` because Tauri uses the first PNG
+there as the window icon on Linux. Do not edit the derived files by hand.
 
 ## Releases
 
@@ -128,6 +171,10 @@ Builds are **not signed**: no signing certificate is configured, and the manifes
 is, and migrations back it up first. Rollback: unpack the previous archive. A data directory that a newer version
 already migrated is refused by an older one (`storage.schema_too_new`); restore the pre-migration backup from
 `~/.nodestro/backups/pre-migration-*.db` in that case.
+
+## Open work
+
+Known gaps, follow-ups and untested platforms are listed in [docs/TODO.md](docs/TODO.md).
 
 ## License
 

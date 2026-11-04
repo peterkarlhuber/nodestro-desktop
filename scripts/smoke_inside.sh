@@ -15,6 +15,13 @@ if [ "${1:-}" = as-user ]; then
     if [ $(( $(date +%s) - start )) -gt 120 ]; then echo "backend not ready"; cat app.out "$log" || true; exit 1; fi
   done
   port=$(sed -n "s/.*backend ready on port \([0-9]*\).*/\1/p" app.out)
+  # A failed check below ends the script silently (set -e): show which one and the backend log.
+  # shellcheck disable=SC2329 # invoked by the EXIT trap
+  show_log() {
+    local status=$?
+    if [ "$status" != 0 ]; then echo "smoke check failed; backend log:"; cat "$log" || true; fi
+  }
+  trap show_log EXIT
   # Another program on this computer: no session, no launch.
   test "$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$port/api/workflows")" = 401
   test "$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$port/api/health")" = 200
@@ -23,7 +30,8 @@ if [ "${1:-}" = as-user ]; then
   grep -q "backend stopped" app.out
   grep -q "GET /api/launch?token=\[redacted\] HTTP/1.1\" 200" "$log"
   grep -q "GET /api/settings HTTP/1.1\" 200" "$log"
-  grep -q "GET /api/workflows HTTP/1.1\" 200" "$log"
+  # The studio rendered a page: the workflow list, or the welcome page a fresh installation opens on.
+  grep -Eq "GET /(api/workflows|assets/WelcomePage-[^ ]*\.js) HTTP/1.1\" 200" "$log"
   # Only the curl probe above may have been refused.
   test "$(grep -c "\" 401" "$log")" = 1
   if grep -q "\" 403" "$log"; then echo "a request was refused with 403"; exit 1; fi
@@ -43,6 +51,8 @@ for tool in python3 node cargo docker; do
 done
 useradd --create-home person
 tar -xzf /tmp/nodestro.tar.gz -C /opt
+# The bundled local model runtime runs on the clean machine (its client prints the version; it starts no server).
+/opt/nodestro/backend/ollama/bin/ollama --version 2>&1 | grep -q "0\.40\.14" || { echo "the bundled Ollama does not run" >&2; exit 1; }
 su person -s /bin/bash -c "bash /tmp/smoke_inside.sh as-user"
 if pgrep -f nodestro_studio >/dev/null; then
   echo "a backend process was left behind" >&2
