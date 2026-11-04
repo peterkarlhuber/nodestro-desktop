@@ -3,7 +3,7 @@
 > Open work for this repository: release blockers, known bugs, security follow-ups, technical debt and planned improvements.
 > GitHub issues are the source of truth for details; this file is the entry point and summary.
 >
-> **Last full review:** 2026-11-03 against `master` at `c6d4eeb` (close-out of the backend audit round 2).
+> **Last full review:** 2026-11-04 against `master` at `fc90315` (internal backend audit round 3).
 
 ## Summary
 
@@ -12,7 +12,7 @@
 | P0 Critical | 0 |
 | P1 High | 1 |
 | P2 Medium | 3 |
-| P3 Low | 10 |
+| P3 Low | 11 |
 | P4 Optional | 5 |
 
 **Release blockers:** DSK-001.
@@ -60,7 +60,8 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
 - **What:** Found by reading the code; Windows is not built (DSK-004). The release shell is a GUI program
   (`windows_subsystem = "windows"`) that starts the console program `python.exe` without `CREATE_NO_WINDOW`, so a
   console window is expected next to the app. `stop` has no graceful path off Unix: `TerminateProcess` right away,
-  so the backend's shutdown (and stopping the processes it started) does not run.
+  so the backend's shutdown (and stopping the processes it started) does not run. Since the bundled Ollama
+  (desktop #36), an immediate kill also leaves the managed Ollama running (audit round 3 OPS3-04, see DSK-022).
 - **Next step:** Confirm on the first Windows test build; then start with `CREATE_NO_WINDOW` and stop gracefully
   (for example a shutdown request on the loopback API or a console control event), killed after the timeout.
 
@@ -115,10 +116,11 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
 
 ### DSK-008 · Dependabot updates (getrandom 0.4, GitHub Actions group)
 
-- **Priority:** P3 Low · **Status:** Open (CI needs no secret since 2026-11-03) · **Refs:** #10, #11
-- **What:** #10 is a breaking-version bump of `getrandom` (0.3 to 0.4) used for the launch secret; #11 updates four
-  actions. Both fail only in the `app` job because the secret is missing.
-- **Next step:** Re-run #10 and #11; review the getrandom API change and the actions' release notes; merge if green.
+- **Priority:** P3 Low · **Status:** Open · **Refs:** #10
+- **What:** #11 (four actions) is merged (`47ebe7b`, audit round 3). #10 is a breaking-version bump of `getrandom`
+  (0.3 to 0.4) used for the launch secret; rebased, green on Linux, the real systems and macOS Intel, the macOS
+  arm64 build was re-run.
+- **Next step:** Merge #10 when all checks are green.
 
 ### DSK-009 · Smoke and window test gaps
 
@@ -155,6 +157,7 @@ None known beyond DSK-001.
 - **Priority:** P4 Optional · **Status:** Open · **Refs:** `studio.json`, backend audit D-01
 - **What:** `studio.json` now pins master merge commits (re-pinned with the Live Run Chat cascade), but CI checks only that
   the pins resolve, not how far they lag behind the latest studio platform commit.
+  Observed in audit round 3: the products pinned studio `0a6a320`, one cascade behind studio master `31bde8e`.
 - **Next step:** Add a CI warning for pin distance; keep pinning merge commits in every cascade.
 
 ### DSK-018 · Probe bundle build can pick up the builder's user site
@@ -200,6 +203,17 @@ None known beyond DSK-001.
 - **What:** The archive names the bundled Ollama in `backend/ollama/OLLAMA-RELEASE` (version, archive, SHA-256) and
   ships its license, but `release-manifest.json` does not list it as a component yet.
 - **Next step:** Add bundled binaries to the manifest in nodestro-server's copy first, then sync.
+
+### DSK-022 · The managed Ollama survives a killed backend
+
+- **Priority:** P3 Low · **Status:** Open · **Refs:** backend audit round 3 OPS3-04, orkexa `local/server.py`
+- **What:** orkexa starts the bundled Ollama in its own session. When the backend is killed (the 10 s stop timeout,
+  a crash, an OOM kill, or every stop on Windows, DSK-017), Ollama keeps running with its loaded model. Since orkexa
+  #49 (round 3) the next start on Linux and macOS reclaims a stale managed server recorded in its state file;
+  Windows has no reclaim, and the orphan still runs until the next start.
+- **Next step:** Tie the child's lifetime to the backend (`PR_SET_PDEATHSIG` on Linux, a job object with
+  `KILL_ON_JOB_CLOSE` on Windows) in orkexa; verify with a desktop kill test after the pin bump.
+- **Depends on:** orkexa (managed server)
 
 ## Accepted risks
 
