@@ -11,7 +11,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-getrandom = "0.3"
+getrandom = "0.4"
 # The MCP token vault key (ADR-0007 D-3) lives in the operating system's keychain: Secret Service on Linux (pure Rust
 # D-Bus, no libdbus), Keychain on macOS, Credential Manager on Windows.
 keyring = { version = "3.6", default-features = false, features = ["async-secret-service", "async-io", "crypto-rust", "apple-native", "windows-native"] }
