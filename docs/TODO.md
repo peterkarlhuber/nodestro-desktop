@@ -3,7 +3,7 @@
 > Open work for this repository: release blockers, known bugs, security follow-ups, technical debt and planned improvements.
 > GitHub issues are the source of truth for details; this file is the entry point and summary.
 >
-> **Last full review:** 2026-11-04 against `master` at `fc90315` (internal backend audit round 3).
+> **Last full review:** 2026-11-05 against `master` at `f271c5e` (quality round 3 close-out; TODO consolidated).
 
 ## Summary
 
@@ -15,11 +15,14 @@
 | P3 Low | 11 |
 | P4 Optional | 5 |
 
-**Release blockers:** DSK-001.
+**Release blockers:** DSK-001 (no Go for the next preview without a new candidate and Go/No-Go). Every other entry
+is not a release blocker.
 
 The Linux x86_64 shell, bundle, built-in sandbox integration and real-system tests (Ubuntu 24.04, Debian 13) are
-in place. The desktop `v0.2.0-preview.1` decision is still NO-GO: the sandbox work it waited for is merged, but no
-new candidate has been built or re-evaluated. macOS, Windows, signing, installers and updates do not exist yet.
+in place. The frozen candidate `v0.2.0-preview.1` stays NO-GO (owner decision 2026-10-31) and is not published; since
+the owner's Docker-first decision of 2026-11-02 (ADR-0009 in nodestro-studio) a new candidate has to be built and
+evaluated with Docker as the sandbox for AI-generated tools, and none has been built yet. macOS, Windows, signing,
+installers and updates do not exist yet.
 
 ## Priorities and statuses
 
@@ -36,12 +39,18 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
 
 ### DSK-001 · New desktop release candidate and Go/No-Go after the built-in sandbox
 
-- **Priority:** P1 High · **Status:** Needs decision · **Refs:** #16, release decision 2026-10-31
-- **What:** `v0.2.0-preview.1` was NO-GO until the built-in Linux sandbox was finished. It is now integrated and
-  tested on real machines (desktop #6), but the only candidates (runs 41212112554, 41212693919) are withdrawn and no
-  new one exists. The README still presents `v0.2.0-preview.1` as the current candidate.
-- **Next step:** After the next pin cascade, rebuild with `release.yml`, run `systems.yml`, write a new Go/No-Go,
-  update the README status. Publishing needs the owner's explicit approval.
+- **Priority:** P1 High · **Status:** Needs decision · **Refs:** #16, release decision 2026-10-31, Docker-first
+  decision 2026-11-02 (ADR-0009 in nodestro-studio)
+- **What:** The candidate `v0.2.0-preview.1` (runs 41212112554, 41212693919, built 2026-10-31 before the built-in
+  sandbox) is frozen and NO-GO by the owner's decision of 2026-10-31; `publish.yml` refuses both runs. The built-in
+  Linux sandbox has since been integrated and tested on real machines (desktop #6), and the owner's Docker-first
+  decision of 2026-11-02 made Docker the sandbox for AI-generated tools in automatic mode (the built-in sandbox is not
+  used there, [docs/testing.md](testing.md)). No new candidate has been built or evaluated. The README still names
+  `v0.2.0-preview.1` as the (unpublished) candidate, and nodestro-studio `platform/versions.json` `products` still
+  lists it (ST-027).
+- **Next step:** From the current pins (studio `2c072d7`, desktop #41), rebuild with `release.yml`, run
+  `systems.yml`, write a new Go/No-Go against the Docker-first behavior, update the README status. Publishing needs
+  the owner's explicit approval.
 
 ## Security
 
@@ -118,9 +127,9 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
 
 - **Priority:** P3 Low · **Status:** Open · **Refs:** #10
 - **What:** #11 (four actions) is merged (`47ebe7b`, audit round 3). #10 is a breaking-version bump of `getrandom`
-  (0.3 to 0.4) used for the launch secret; rebased, green on Linux, the real systems and macOS Intel, the macOS
-  arm64 build was re-run.
-- **Next step:** Merge #10 when all checks are green.
+  (0.3 to 0.4) used for the launch secret; rebased, green on Linux, the real systems and macOS Intel; the macOS
+  arm64 (`macos-latest`) test build was cancelled twice and has no result yet.
+- **Next step:** Re-run the macOS arm64 job; merge #10 when all checks are green.
 
 ### DSK-009 · Smoke and window test gaps
 
@@ -157,7 +166,8 @@ None known beyond DSK-001.
 - **Priority:** P4 Optional · **Status:** Open · **Refs:** `studio.json`, backend audit D-01
 - **What:** `studio.json` now pins master merge commits (re-pinned with the Live Run Chat cascade), but CI checks only that
   the pins resolve, not how far they lag behind the latest studio platform commit.
-  Observed in audit round 3: the products pinned studio `0a6a320`, one cascade behind studio master `31bde8e`.
+  Observed in audit round 3: the products pinned studio `0a6a320`, one cascade behind studio master `31bde8e`; the
+  round-3 cascade (desktop #41) moved the pin to `2c072d7` (studio master `e46911d` adds only a test and TODO change).
 - **Next step:** Add a CI warning for pin distance; keep pinning merge commits in every cascade.
 
 ### DSK-018 · Probe bundle build can pick up the builder's user site
@@ -210,10 +220,11 @@ None known beyond DSK-001.
 - **What:** orkexa starts the bundled Ollama in its own session. When the backend is killed (the 10 s stop timeout,
   a crash, an OOM kill, or every stop on Windows, DSK-017), Ollama keeps running with its loaded model. Since orkexa
   #49 (round 3) the next start on Linux and macOS reclaims a stale managed server recorded in its state file;
-  Windows has no reclaim, and the orphan still runs until the next start.
+  Windows has no reclaim, and the orphan still runs until the next start. The pinned studio `2c072d7` includes orkexa
+  #49 (`e9c2147`); the reclaim is untested on macOS and Windows (orkexa ORK-030).
 - **Next step:** Tie the child's lifetime to the backend (`PR_SET_PDEATHSIG` on Linux, a job object with
-  `KILL_ON_JOB_CLOSE` on Windows) in orkexa; verify with a desktop kill test after the pin bump.
-- **Depends on:** orkexa (managed server)
+  `KILL_ON_JOB_CLOSE` on Windows) in orkexa; verify with a desktop kill test.
+- **Depends on:** orkexa (managed server; platform coverage in ORK-030)
 
 ## Accepted risks
 
@@ -244,6 +255,7 @@ None known beyond DSK-001.
 | DSK-020 | nodestro-runtime, orkexa | `local_service.py`, `orkexa.local.install` (same Ollama pin, checked by `fetch_ollama.py --check-against`) | Keep the pins equal |
 | DSK-013 | nodestro-server, nodestro-local-docker | SRV-016, LD-009 (pin distance warning) | Same check in all three |
 | DSK-010 | nodestro-runtime | RT-018 (built-in sandbox `TESTED_SYSTEMS`) | New systems must be validated there first |
+| DSK-022 | orkexa | ORK-030 (managed Ollama on macOS/Windows, orphan reclaim POSIX only) | Fix lives in orkexa |
 
 ## CI access to private repositories
 
