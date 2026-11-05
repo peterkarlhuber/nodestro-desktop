@@ -48,7 +48,7 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
   used there, [docs/testing.md](testing.md)). No new candidate has been built or evaluated. The README still names
   `v0.2.0-preview.1` as the (unpublished) candidate, and nodestro-studio `platform/versions.json` `products` still
   lists it (ST-027).
-- **Next step:** From the current pins (studio `2c072d7`, desktop #41), rebuild with `release.yml`, run
+- **Next step:** From the current pins (studio `a1acb1b`, manual-findings cascade 2026-11-05), rebuild with `release.yml`, run
   `systems.yml`, write a new Go/No-Go against the Docker-first behavior, update the README status. Publishing needs
   the owner's explicit approval.
 
@@ -167,7 +167,7 @@ None known beyond DSK-001.
 - **What:** `studio.json` now pins master merge commits (re-pinned with the Live Run Chat cascade), but CI checks only that
   the pins resolve, not how far they lag behind the latest studio platform commit.
   Observed in audit round 3: the products pinned studio `0a6a320`, one cascade behind studio master `31bde8e`; the
-  round-3 cascade (desktop #41) moved the pin to `2c072d7` (studio master `e46911d` adds only a test and TODO change).
+  round-3 cascade (desktop #41) moved the pin to `2c072d7`; the manual-findings cascade (2026-11-05) to `a1acb1b`.
 - **Next step:** Add a CI warning for pin distance; keep pinning merge commits in every cascade.
 
 ### DSK-018 · Probe bundle build can pick up the builder's user site
@@ -220,7 +220,7 @@ None known beyond DSK-001.
 - **What:** orkexa starts the bundled Ollama in its own session. When the backend is killed (the 10 s stop timeout,
   a crash, an OOM kill, or every stop on Windows, DSK-017), Ollama keeps running with its loaded model. Since orkexa
   #49 (round 3) the next start on Linux and macOS reclaims a stale managed server recorded in its state file;
-  Windows has no reclaim, and the orphan still runs until the next start. The pinned studio `2c072d7` includes orkexa
+  Windows has no reclaim, and the orphan still runs until the next start. The pinned studio `a1acb1b` includes orkexa
   #49 (`e9c2147`); the reclaim is untested on macOS and Windows (orkexa ORK-030).
 - **Next step:** Tie the child's lifetime to the backend (`PR_SET_PDEATHSIG` on Linux, a job object with
   `KILL_ON_JOB_CLOSE` on Windows) in orkexa; verify with a desktop kill test.
