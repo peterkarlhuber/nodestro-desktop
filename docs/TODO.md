@@ -12,7 +12,7 @@
 | P0 Critical | 0 |
 | P1 High | 1 |
 | P2 Medium | 3 |
-| P3 Low | 11 |
+| P3 Low | 10 |
 | P4 Optional | 5 |
 
 **Release blockers:** DSK-001 (no Go for the next preview without a new candidate and Go/No-Go). Every other entry
@@ -122,14 +122,6 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
 - **Next step:** Decide whether older systems matter; if so, build the shell on an older base.
 
 ## Tests and quality assurance
-
-### DSK-008 · Dependabot updates (getrandom 0.4, GitHub Actions group)
-
-- **Priority:** P3 Low · **Status:** Open · **Refs:** #10
-- **What:** #11 (four actions) is merged (`47ebe7b`, audit round 3). #10 is a breaking-version bump of `getrandom`
-  (0.3 to 0.4) used for the launch secret; rebased, green on Linux, the real systems and macOS Intel; the macOS
-  arm64 (`macos-latest`) test build was cancelled twice and has no result yet.
-- **Next step:** Re-run the macOS arm64 job; merge #10 when all checks are green.
 
 ### DSK-009 · Smoke and window test gaps
 
@@ -249,6 +241,7 @@ None known beyond DSK-001.
 
 | This repo item | Other repo | Other item | Relation |
 |---|---|---|---|
+| (pointer) | nodestro-studio | ST-052 (Dependabot policy: weekly groups, cooldown, manual merge; auto-merge prerequisites) | Full entry in studio |
 | DSK-001 | nodestro-studio | ST-027 (`platform/versions.json` `products` still names the withdrawn candidate), ST-018 (RELEASES.md and IMPLEMENTATION_STATUS.md not updated after the sandbox) | Update together |
 | DSK-011 | nodestro-server | `scripts/` (source copies) | Sync with |
 | DSK-021 | nodestro-server | `scripts/release_manifest.py` | Change there first |

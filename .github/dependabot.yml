@@ -1,11 +1,16 @@
 # Weekly, grouped update pull requests with a small limit. Every action in the workflows is pinned by commit SHA
 # (the version is the trailing comment); Dependabot keeps those pins current.
+# cooldown: a new release is proposed only after a few days (a week for package majors), so a broken or compromised release
+# is usually withdrawn before it reaches a pull request; security updates are not delayed. Merging stays manual
+# (no auto-merge; nodestro-studio docs/TODO.md ST-052).
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     open-pull-requests-limit: 3
     groups:
       github-actions:
@@ -15,6 +20,9 @@ updates:
     directory: /app
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
     open-pull-requests-limit: 3
     groups:
       cargo-minor-and-patch:
