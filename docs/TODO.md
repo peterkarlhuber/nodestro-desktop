@@ -12,7 +12,7 @@
 | P0 Critical | 0 |
 | P1 High | 1 |
 | P2 Medium | 3 |
-| P3 Low | 10 |
+| P3 Low | 11 |
 | P4 Optional | 5 |
 
 **Release blockers:** DSK-001 (no Go for the next preview without a new candidate and Go/No-Go). Every other entry
@@ -129,6 +129,18 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
 - **What:** The smoke test does not check that Settings lists Amazon Bedrock as `not_configured` (no AWS call), and
   the studio's browser suites have never run in the WebKitGTK window itself (only in Playwright WebKit).
 - **Next step:** Extend `scripts/smoke_inside.sh`; consider one WebKitGTK run of the studio smoke suite.
+
+### DSK-023 · Intermittent keychain failure in the Debian 13 system test
+
+- **Priority:** P3 Low · **Status:** Open · **Refs:** `scripts/vm/test_package.sh` (`keychain`), `.github/workflows/systems.yml`, CI run 42066077232
+- **What:** On `master` at `b3a621c` (a TODO and Dependabot-config change only) the step "Packaged app with an
+  unlocked keychain" failed once on Debian 13: the app logged `keychain not usable (... org.freedesktop.DBus.Error.NoReply:
+  Message recipient disconnected from message bus without replying)`. The same tree passed on the pull request, and
+  the one re-run of the job passed. Root cause not established; the error says gnome-keyring-daemon left the session
+  bus while answering the app's first Secret Service call (startup of the daemon inside `dbus-run-session` is the
+  likely race). The app behaved as designed (session-only tokens), only the test expectation failed.
+- **Next step:** Keep the daemon's log (`--foreground` with stderr to a file, collected by "Fetch the reports") and
+  wait until `secret-tool` answers before the first app start; do not retry the app start to hide the failure.
 
 ## Platform coverage
 
