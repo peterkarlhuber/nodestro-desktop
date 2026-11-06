@@ -31,6 +31,7 @@ jobs:
           shell=$(sed -n 's/^version = "\(.*\)"$/\1/p' app/Cargo.toml | head -n 1)
           [ "v$shell" = "$VERSION" ] || { echo "::error::app/Cargo.toml says $shell, not ${VERSION#v}"; exit 1; }
       - run: python3 -I scripts/test_scan_secrets.py
+      - run: python3 -I scripts/test_release_manifest.py
       - name: System libraries of the Tauri shell (WebKitGTK 4.1)
         run: |
           sudo apt-get update
@@ -57,6 +58,7 @@ jobs:
           python3 scripts/release_manifest.py --product nodestro-desktop --version "$VERSION" \
             --out release --studio-meta "$RUNNER_TEMP/backend/meta" \
             --python "$RUNNER_TEMP/backend/python/bin/python3" --cargo-manifest app/Cargo.toml \
+            --bundled ollama="$RUNNER_TEMP/backend/ollama/OLLAMA-RELEASE" \
             --platform linux-x86_64 "release/nodestro-desktop-${VERSION}-linux-x86_64.tar.gz"
           python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m["version"], m["channel"], "unknown licenses:", m["licenses"]["unknown"])' release/release-manifest.json
       - name: Scan the release files for secrets

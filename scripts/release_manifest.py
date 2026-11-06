@@ -2,16 +2,20 @@
 """Write the release manifest and checksums of a Nodestro product build (plan M6).
 
     scripts/release_manifest.py --product NAME --version v0.3.0 --out DIR --studio-meta DIR \
-        [--commit SHA] [--python PATH] [--cargo-manifest PATH] [--image REF@sha256:DIGEST] [ARTIFACT...]
+        [--commit SHA] [--python PATH] [--cargo-manifest PATH] [--image REF@sha256:DIGEST] \
+        [--bundled NAME=RELEASE_FILE] [ARTIFACT...]
 
 The manifest (``DIR/release-manifest.json``) records:
 
 - the product commit and the studio commit it was built from, and every component pin of that studio
   (``platform/versions.json``);
 - each artifact's file name, size and SHA-256 (also written to ``DIR/SHA256SUMS``), and each image with its digest;
+- the bundled third-party binaries (``bundled``: the docker CLI of the server image, the local model runtime of the
+  desktop app), each from a release file of ``key=value`` lines written when it was fetched and checked: ``version``,
+  ``sha256`` (of the downloaded archive), ``archive`` or ``source``, and ``license``;
 - the license inventory: the Python distributions in the bundled interpreter, the npm packages built into the studio
-  interface (``package-lock.json``), and the Rust crates of the shell (``cargo metadata``). Packages without a
-  declared license are listed under ``licenses.unknown``, so a release reviewer sees them;
+  interface (``package-lock.json``), the Rust crates of the shell (``cargo metadata``) and the bundled binaries.
+  Packages without a declared license are listed under ``licenses.unknown``, so a release reviewer sees them;
 - the channel (``preview`` for a version with a pre-release part) and the signing state. Nothing is signed
   until a signing certificate is configured, and the manifest says so instead of claiming otherwise.
 
@@ -98,6 +102,28 @@ def cargo_inventory(manifest: Path) -> list[dict[str, str]]:
     ]
 
 
+def bundled_binary(spec: str) -> dict[str, str]:
+    """``NAME=FILE``: a bundled binary from its release file (``key=value`` lines; unknown keys are ignored)."""
+    name, separator, path = spec.partition("=")
+    if not separator or not name or not path:
+        raise SystemExit(f"--bundled needs NAME=RELEASE_FILE, not {spec!r}")
+    fields = {}
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        key, equals, value = line.partition("=")
+        if equals:
+            fields[key.strip()] = value.strip()
+    missing = [key for key in ("version", "sha256") if not fields.get(key)]
+    if missing:
+        raise SystemExit(f"{path}: the release file of {name} names no {', '.join(missing)}")
+    return {
+        "name": name,
+        "version": fields["version"],
+        "sha256": fields["sha256"],
+        "source": fields.get("source") or fields.get("archive", ""),
+        "license": fields.get("license", ""),
+    }
+
+
 def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
     repository = Path(__file__).resolve().parents[1]
     studio_meta = Path(args.studio_meta)
@@ -111,6 +137,10 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
         packages += npm_inventory(lock)
     if args.cargo_manifest:
         packages += cargo_inventory(Path(args.cargo_manifest))
+    bundled = [bundled_binary(spec) for spec in args.bundled]
+    packages += [
+        {"ecosystem": "binary", "name": b["name"], "version": b["version"], "license": b["license"]} for b in bundled
+    ]
     artifacts = [
         {"name": Path(a).name, "size": Path(a).stat().st_size, "sha256": sha256(Path(a))} for a in args.artifacts
     ]
@@ -124,6 +154,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "platform": versions.get("platform"),
         "components": {name: entry["commit"] for name, entry in versions.get("components", {}).items()},
         "artifacts": artifacts,
+        "bundled": bundled,
         "images": args.image,
         "platforms": args.platform,
         "signing": {
@@ -150,6 +181,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--platform", action="append", default=[], help="a platform this release was tested on")
     parser.add_argument("--commit", help="the product commit (default: git rev-parse HEAD of this repository)")
     parser.add_argument("--image", action="append", default=[], help="a published image as REF@sha256:DIGEST")
+    parser.add_argument(
+        "--bundled", action="append", default=[], help="a bundled binary as NAME=RELEASE_FILE (key=value lines)"
+    )
     parser.add_argument("artifacts", nargs="*")
     args = parser.parse_args(argv)
     manifest = build_manifest(args)

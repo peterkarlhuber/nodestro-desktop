@@ -20,6 +20,7 @@ import tempfile
 #: The files that are byte-identical copies of nodestro-server's (same path there).
 SHARED = (
     "scripts/release_manifest.py",
+    "scripts/test_release_manifest.py",
     "scripts/scan_secrets.py",
     "scripts/test_scan_secrets.py",
     "scripts/npm_licenses.mjs",

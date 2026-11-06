@@ -9,7 +9,7 @@ offline build) and must have the SHA-256 pinned below before anything is unpacke
 release's ``sha256sum.txt``; a download also fetches that file and refuses a pin it does not list. Unpacking refuses
 absolute paths, ``..``, links that leave the target, hard links and device files. The result is
 ``<backend-dir>/ollama/`` (the archive's own layout; the executable is ``bin/ollama``, ``ollama`` or ``ollama.exe``)
-with ``OLLAMA-RELEASE`` (version, archive, SHA-256) and Ollama's ``LICENSE`` (MIT, also pinned by SHA-256).
+with ``OLLAMA-RELEASE`` (version, archive, SHA-256, license; the release manifest lists it) and Ollama's ``LICENSE`` (MIT, also pinned by SHA-256).
 
 The NVIDIA CUDA libraries of the Linux x86_64 archive (about 2.4 GB) are left out unless ``--gpu``: the bundle keeps
 the CPU and Vulkan backends (about 110 MB). The app passes the executable to the backend as ``NODESTRO_OLLAMA_BINARY``
@@ -274,7 +274,8 @@ def main() -> None:
         binary.chmod(binary.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         shutil.copyfile(license_file, unpacked / "LICENSE")
         (unpacked / "OLLAMA-RELEASE").write_text(
-            f"version={VERSION}\narchive={name}\nsha256={expected}\ngpu={'yes' if options.gpu else 'no'}\n",
+            # license: the LICENSE file above, checked by its SHA-256 (MIT); the release manifest lists it.
+            f"version={VERSION}\narchive={name}\nsha256={expected}\ngpu={'yes' if options.gpu else 'no'}\nlicense=MIT\n",
             encoding="utf-8",
         )
         if target.exists():
