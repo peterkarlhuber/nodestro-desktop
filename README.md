@@ -45,7 +45,10 @@ entry is deleted, stored tokens become unreadable and have to be entered again. 
 check both cases: without a keychain (session only) and with an unlocked GNOME Keyring (key stored once, reused).
 
 Data stays in `~/.nodestro` (or `NODESTRO_DATA_DIR`), shared with the `nodestro` command; only one of them can use a
-data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`.
+data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`, readable by the
+user only; it moves to `backend.log.1` whenever it passes 10 MiB, also while the backend runs (the shell copies the
+backend's output into it). Without a log folder for the app, the log goes into a new folder with a random name and mode
+0700 in the temporary directory.
 
 **Local models** run on the computer without an API key, through the bundled Ollama (`backend/ollama`, the
 release pinned in `scripts/fetch_ollama.py`, the same as `orkexa.local`). `build_backend.sh` downloads its archive

@@ -27,8 +27,17 @@ const LOCAL_PREFIXES: [&str; 2] = ["tauri://localhost", "http://tauri.localhost"
 #[derive(Default)]
 struct State {
     child: Mutex<Option<std::process::Child>>,
+    /// The copy of the backend's output into its log (finished after the backend stopped, so the log is complete).
+    log: Mutex<Option<backend::LogCopy>>,
     origin: Mutex<Option<String>>,
     stopping: AtomicBool,
+}
+
+/// Wait (briefly) until the backend's last output is in its log.
+fn finish_log(state: &State) {
+    if let Some(mut copy) = state.log.lock().unwrap().take() {
+        copy.finish(Duration::from_secs(2));
+    }
 }
 
 fn local_page(fragment: &str) -> Url {
@@ -59,8 +68,14 @@ fn open_externally(url: &str) {
     let _ = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn();
 }
 
+/// The backend log in the app's log folder; without one, in a new private folder of the temporary directory (never a
+/// folder with a predictable name, which someone else could have created first).
 fn log_file(app: &tauri::AppHandle) -> PathBuf {
-    app.path().app_log_dir().unwrap_or_else(|_| std::env::temp_dir().join("nodestro-desktop")).join("backend.log")
+    app.path()
+        .app_log_dir()
+        .or_else(|_| backend::fallback_log_dir())
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("backend.log")
 }
 
 /// How long the keychain may take (an unlock prompt nobody answers must not keep the backend from starting).
@@ -104,6 +119,7 @@ fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
     let launch = running.launch_url();
     let origin = running.origin();
     // Owned by the state from the start, so quitting during the start stops it too.
+    *state.log.lock().unwrap() = Some(running.log);
     *state.child.lock().unwrap() = Some(running.child);
     let deadline = std::time::Instant::now() + START_TIMEOUT;
     loop {
@@ -116,6 +132,7 @@ fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
         }
         if let Some(child) = state.child.lock().unwrap().as_mut() {
             if let Ok(Some(status)) = child.try_wait() {
+                finish_log(&state);
                 let detail = backend::StartError::Exited(status.code()).detail();
                 return show_error(&window, "start_failed", &detail, &log);
             }
@@ -145,6 +162,7 @@ fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
             guard.take();
             drop(guard);
             *state.origin.lock().unwrap() = None;
+            finish_log(&state);
             let detail = backend::StartError::Exited(status.code()).detail();
             return show_error(&window, "stopped", &detail, &log);
         }
@@ -193,6 +211,7 @@ fn main() {
                 exit_state.stopping.store(true, Ordering::SeqCst);
                 if let Some(mut child) = exit_state.child.lock().unwrap().take() {
                     backend::stop(&mut child, STOP_TIMEOUT);
+                    finish_log(&exit_state);
                     eprintln!("nodestro-desktop: backend stopped");
                 }
             }

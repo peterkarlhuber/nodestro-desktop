@@ -14,6 +14,8 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::vault::VAULT_KEY_ENV;
@@ -40,7 +42,8 @@ pub fn new_secret() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// A backend log larger than this is moved to `<log>.1` (replacing the previous one) when the backend starts.
+/// A backend log larger than this is moved to `<log>.1` (replacing the previous one), when the backend starts and
+/// as soon as it grows past it while the backend runs.
 pub const LOG_ROTATE_BYTES: u64 = 10 * 1024 * 1024;
 
 fn private_file(options: &mut OpenOptions) -> &mut OpenOptions {
@@ -54,8 +57,14 @@ fn private_file(options: &mut OpenOptions) -> &mut OpenOptions {
 
 /// The backend's log file: `log`, rotated once it exceeds `rotate_bytes`, readable by the user only. If it cannot be
 /// opened, a new file with an unpredictable name in the temporary directory (never an existing file or a link
-/// someone placed there).
+/// someone placed there). The backend's own log is a [`RotatingLog`] on top of this.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn open_log(log: &Path, rotate_bytes: u64) -> std::io::Result<File> {
+    open_log_at(log, rotate_bytes).map(|(file, _)| file)
+}
+
+/// [`open_log`], and the path of the file it opened (`log` or the fallback file).
+fn open_log_at(log: &Path, rotate_bytes: u64) -> std::io::Result<(File, PathBuf)> {
     if let Some(parent) = log.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -73,12 +82,107 @@ pub fn open_log(log: &Path, rotate_bytes: u64) -> std::io::Result<File> {
                 use std::os::unix::fs::PermissionsExt;
                 file.set_permissions(fs::Permissions::from_mode(0o600))?;
             }
-            Ok(file)
+            Ok((file, log.to_path_buf()))
         })
         .or_else(|_| {
             let name = format!("nodestro-desktop-backend-{}-{}.log", std::process::id(), &new_secret()[..16]);
-            private_file(OpenOptions::new().write(true).create_new(true)).open(std::env::temp_dir().join(name))
+            let path = std::env::temp_dir().join(name);
+            private_file(OpenOptions::new().write(true).create_new(true)).open(&path).map(|file| (file, path))
         })
+}
+
+/// The folder for the backend log when the system has no log folder for the app: a new folder in the temporary
+/// directory with an unpredictable name, readable by the user only (never a folder someone else created there).
+pub fn fallback_log_dir() -> std::io::Result<PathBuf> {
+    let dir = std::env::temp_dir().join(format!("nodestro-desktop-{}", &new_secret()[..16]));
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(&dir)?; // fails if it exists
+    Ok(dir)
+}
+
+/// The backend log while the backend runs: its output is copied in by the shell (see [`Backend::start`]), so the
+/// log is rotated to `<log>.1` as soon as it grows past the limit, not only at the next start.
+pub struct RotatingLog {
+    path: PathBuf,
+    file: File,
+    written: u64,
+    limit: u64,
+}
+
+impl RotatingLog {
+    pub fn open(path: &Path, limit: u64) -> std::io::Result<RotatingLog> {
+        let (file, path) = open_log_at(path, limit)?;
+        let written = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+        Ok(RotatingLog { path, file, written, limit })
+    }
+
+    /// Append `bytes`, rotating first when they would take the log past the limit (a single larger write still goes
+    /// into one file).
+    pub fn write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        if self.written > 0 && self.written + bytes.len() as u64 > self.limit {
+            self.rotate();
+        }
+        self.file.write_all(bytes)?;
+        self.written += bytes.len() as u64;
+        Ok(())
+    }
+
+    fn rotate(&mut self) {
+        let mut rotated = self.path.as_os_str().to_owned();
+        rotated.push(".1");
+        if fs::rename(&self.path, &rotated).is_err() {
+            return; // keep writing to the current file
+        }
+        if let Ok((file, path)) = open_log_at(&self.path, u64::MAX) {
+            self.file = file;
+            self.path = path;
+            self.written = 0;
+        }
+    }
+}
+
+/// Copy one output stream of the backend into the log until it ends; then say so on `done`.
+fn copy_to_log(mut from: impl Read, log: Arc<Mutex<RotatingLog>>, done: Sender<()>) {
+    let mut buffer = [0u8; 8192];
+    loop {
+        match from.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => {
+                if let Ok(mut log) = log.lock() {
+                    let _ = log.write(&buffer[..count]);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        }
+    }
+    let _ = done.send(());
+}
+
+/// The threads that copy the backend's output into its log.
+pub struct LogCopy {
+    done: Receiver<()>,
+    streams: usize,
+}
+
+impl LogCopy {
+    /// Wait until the backend's output streams ended and everything is in the log, at most `timeout` (a process the
+    /// backend started may keep a stream open).
+    pub fn finish(&mut self, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        while self.streams > 0 {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if self.done.recv_timeout(left).is_err() {
+                return;
+            }
+            self.streams -= 1;
+        }
+    }
 }
 
 /// How the backend is started: a program and the arguments before the command line options.
@@ -183,6 +287,8 @@ impl StartError {
 pub struct Backend {
     pub child: Child,
     pub port: u16,
+    /// The copy of the backend's output into its log; [`LogCopy::finish`] after the backend ended.
+    pub log: LogCopy,
     secret: String,
 }
 
@@ -220,9 +326,10 @@ impl Backend {
         process
     }
 
-    /// Start `command` on `port` with a new secret; its output goes to `log`. `vault_key` seals MCP tokens
-    /// (see `vault`); without it the backend keeps them for the session only. Both secrets are written to the
-    /// backend's standard input (see the module comment), which is closed right after.
+    /// Start `command` on `port` with a new secret; its output goes to `log` (a [`RotatingLog`], copied by two
+    /// threads of the shell). `vault_key` seals MCP tokens (see `vault`); without it the backend keeps them for the
+    /// session only. Both secrets are written to the backend's standard input (see the module comment), which is
+    /// closed right after.
     pub fn start(
         command: &Launcher,
         port: u16,
@@ -231,13 +338,27 @@ impl Backend {
         log: &Path,
     ) -> Result<Backend, StartError> {
         let secret = new_secret();
-        let output = open_log(log, LOG_ROTATE_BYTES).map_err(|error| StartError::Missing(error.to_string()))?;
-        let errors = output.try_clone().map_err(|error| StartError::Missing(error.to_string()))?;
+        let output =
+            RotatingLog::open(log, LOG_ROTATE_BYTES).map_err(|error| StartError::Missing(error.to_string()))?;
+        let output = Arc::new(Mutex::new(output));
         let mut child = Self::command(command, port, data_dir)
-            .stdout(output)
-            .stderr(errors)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| StartError::Missing(format!("{}: {error}", command.program.display())))?;
+        let (done, finished) = mpsc::channel();
+        let mut streams = 0;
+        if let Some(stdout) = child.stdout.take() {
+            let (log, done) = (output.clone(), done.clone());
+            std::thread::spawn(move || copy_to_log(stdout, log, done));
+            streams += 1;
+        }
+        if let Some(stderr) = child.stderr.take() {
+            let (log, done) = (output.clone(), done.clone());
+            std::thread::spawn(move || copy_to_log(stderr, log, done));
+            streams += 1;
+        }
+        let log_copy = LogCopy { done: finished, streams };
         if let Some(mut pipe) = child.stdin.take() {
             let mut payload = handoff(&secret, vault_key).into_bytes();
             // The payload is far below a pipe's buffer, so this does not wait for the backend. A backend that ended
@@ -247,7 +368,7 @@ impl Backend {
             // Dropping the write end is the backend's end of input.
             drop(pipe);
         }
-        Ok(Backend { child, port, secret })
+        Ok(Backend { child, port, log: log_copy, secret })
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -256,6 +377,7 @@ impl Backend {
         let deadline = Instant::now() + timeout;
         loop {
             if let Ok(Some(status)) = self.child.try_wait() {
+                self.log.finish(Duration::from_secs(2));
                 return Err(StartError::Exited(status.code()));
             }
             if healthy(self.port) {
@@ -475,6 +597,83 @@ mod tests {
             let _ = fs::remove_file(entry.path());
         }
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_log_is_rotated_while_the_backend_runs() {
+        let dir = std::env::temp_dir().join(format!("nodestro-desktop-test-rotating-{}", std::process::id()));
+        let path = dir.join("backend.log");
+        let mut log = RotatingLog::open(&path, 16).unwrap();
+        log.write(b"0123456789\n").unwrap(); // 11 bytes
+        log.write(b"abcdefghij\n").unwrap(); // would make 22 > 16: rotated first
+        assert_eq!(fs::read_to_string(dir.join("backend.log.1")).unwrap(), "0123456789\n");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "abcdefghij\n");
+        // A single write larger than the limit still goes into one file, after a rotation.
+        let big = vec![b'x'; 40];
+        log.write(&big).unwrap();
+        assert_eq!(fs::read_to_string(dir.join("backend.log.1")).unwrap(), "abcdefghij\n");
+        assert_eq!(fs::read(&path).unwrap(), big);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_long_running_backend_cannot_grow_its_log_without_limit() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("nodestro-desktop-test-growing-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("nodestro");
+        // Writes 1.5 times the rotation limit on stdout and stderr in one session, then ends.
+        let half = LOG_ROTATE_BYTES * 3 / 4;
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncat > /dev/null\nhead -c {half} /dev/zero | tr '\\0' o\n\
+                 head -c {half} /dev/zero | tr '\\0' e >&2\necho done\nexit 5\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let log = dir.join("backend.log");
+        let mut backend = Backend::start(
+            &backend_command(Path::new("/x"), Some(script.display().to_string())),
+            free_port().unwrap(),
+            None,
+            None,
+            &log,
+        )
+        .unwrap();
+        assert_eq!(backend.wait_until_ready(Duration::from_secs(60)), Err(StartError::Exited(Some(5))));
+        let current = fs::metadata(&log).unwrap().len();
+        let rotated = fs::metadata(dir.join("backend.log.1")).unwrap().len();
+        assert!(current <= LOG_ROTATE_BYTES && rotated <= LOG_ROTATE_BYTES, "{current} {rotated}");
+        assert_eq!(current + rotated, 2 * half + "done\n".len() as u64, "nothing was lost");
+        let both = fs::read_to_string(&log).unwrap() + &fs::read_to_string(dir.join("backend.log.1")).unwrap();
+        assert!(both.contains("done\n"), "the last line arrived");
+        assert_eq!(fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_fallback_log_folder_is_new_private_and_unpredictable() {
+        let first = fallback_log_dir().unwrap();
+        let second = fallback_log_dir().unwrap();
+        assert_ne!(first, second);
+        assert!(first.starts_with(std::env::temp_dir()));
+        let name = first.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with("nodestro-desktop-") && name.len() == "nodestro-desktop-".len() + 16, "{name}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&first).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+        let _ = fs::remove_dir(first);
+        let _ = fs::remove_dir(second);
     }
 
     #[test]
