@@ -45,7 +45,10 @@ entry is deleted, stored tokens become unreadable and have to be entered again. 
 check both cases: without a keychain (session only) and with an unlocked GNOME Keyring (key stored once, reused).
 
 Data stays in `~/.nodestro` (or `NODESTRO_DATA_DIR`), shared with the `nodestro` command; only one of them can use a
-data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`.
+data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`, readable by the
+user only; it moves to `backend.log.1` whenever it passes 10 MiB, also while the backend runs (the shell copies the
+backend's output into it). Without a log folder for the app, the log goes into a new folder with a random name and mode
+0700 in the temporary directory.
 
 **Local models** run on the computer without an API key, through the bundled Ollama (`backend/ollama`, the
 release pinned in `scripts/fetch_ollama.py`, the same as `orkexa.local`). `build_backend.sh` downloads its archive
@@ -77,8 +80,8 @@ Behind a TLS-inspecting proxy, set `AWS_CA_BUNDLE` to its certificate bundle: th
 | A graphical session (X11 or Wayland) | the window | the smoke test uses a virtual X display (`xvfb-run`) |
 | Linux 6.7 or newer with Landlock (ABI 4) and seccomp, started as a normal user (not root) | the built-in sandbox for AI-generated tools (ADR-0006) | `systems.yml`: Ubuntu 24.04 (kernel 6.8, Landlock ABI 4, AppArmor restricts user namespaces) and Debian 13 (kernel 6.12, ABI 6) |
 | Docker (optional) | AI-generated tools on systems where the built-in sandbox is not available | |
-| About 260 MB of disk for the unpacked archive (74 MB download), plus the data directory | the bundled Python and the studio | `du` of the `v0.2.0-preview.1` candidate |
-| About 120 MB more for the local model runtime, plus several GB per local model; RAM for the model (8 GB or more for the smallest suggested one) | local models | `fetch_ollama.py` output; model sizes in nodestro-runtime `local_models.CATALOG` |
+| About 490 MB of disk for the unpacked archive (about 170 MB download), plus the data directory: about 360 MB for the bundled Python and the studio, about 120 MB for the bundled Ollama | the app, local models | the size line of `package_linux.sh` for a local build of studio `58bb17d` (2026-11-06; the `v0.2.0-preview.1` candidate was 260 MB without Ollama); `package_linux.sh` warns above its size budget |
+| Several GB per local model; RAM for the model (8 GB or more for the smallest suggested one) | local models | model sizes in nodestro-runtime `local_models.CATALOG` |
 
 Not needed: Python, Node.js, Rust, PostgreSQL. The bundled CPython 3.13 is relocatable.
 

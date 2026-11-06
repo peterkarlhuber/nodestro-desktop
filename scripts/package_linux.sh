@@ -8,6 +8,12 @@
 # nodestro/LICENSES/ (Nodestro's license and the license texts of the Rust crates and npm packages it contains; the
 # Python packages keep theirs in their *.dist-info directories). Needs cargo for the crate list.
 # The README names the version, says the build is an unsigned preview and lists the system requirements.
+#
+# Size budget: prints the archive, the unpacked tree and its parts in MiB, and warns (a GitHub
+# `::warning::`, never a failure) when the archive is over NODESTRO_ARCHIVE_BUDGET_MIB (default 175) or the unpacked
+# tree over NODESTRO_UNPACKED_BUDGET_MIB (default 512). The defaults are about 10 % over a build of studio 58bb17d
+# with Ollama (2026-11-06: 159 MiB archive, 465 MiB unpacked, of which Python 341 and Ollama 115); raise them on
+# purpose, in the same change that makes the bundle larger.
 set -euo pipefail
 shell=$1
 backend=$2
@@ -57,3 +63,17 @@ studio (Settings, local models) and stored in ~/.nodestro/local-models.
 TEXT
 tar -C "$stage" -czf "$archive" nodestro
 du -h "$archive"
+mib() { echo $(( ($1 + 1048575) / 1048576 )); }
+archive_mib=$(mib "$(stat -c %s "$archive")")
+unpacked_mib=$(mib "$(du -sb "$stage/nodestro" | cut -f1)")
+echo "size: archive ${archive_mib} MiB, unpacked ${unpacked_mib} MiB" \
+  "(python $(mib "$(du -sb "$stage/nodestro/backend/python" | cut -f1)") MiB," \
+  "ollama $(mib "$(du -sb "$stage/nodestro/backend/ollama" | cut -f1)") MiB)"
+archive_budget=${NODESTRO_ARCHIVE_BUDGET_MIB:-175}
+unpacked_budget=${NODESTRO_UNPACKED_BUDGET_MIB:-512}
+if [ "$archive_mib" -gt "$archive_budget" ]; then
+  echo "::warning::the archive is ${archive_mib} MiB, over its budget of ${archive_budget} MiB"
+fi
+if [ "$unpacked_mib" -gt "$unpacked_budget" ]; then
+  echo "::warning::the unpacked bundle is ${unpacked_mib} MiB, over its budget of ${unpacked_budget} MiB"
+fi

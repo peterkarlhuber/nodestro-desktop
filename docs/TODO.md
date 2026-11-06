@@ -3,7 +3,7 @@
 > Open work for this repository: release blockers, known bugs, security follow-ups, technical debt and planned improvements.
 > GitHub issues are the source of truth for details; this file is the entry point and summary.
 >
-> **Last full review:** 2026-11-05 against `master` at `f271c5e` (quality round 3 close-out; TODO consolidated).
+> **Last full review:** 2026-11-06 against `master` at `5d1e8e9` (TODO abatement round).
 
 ## Summary
 
@@ -12,8 +12,8 @@
 | P0 Critical | 0 |
 | P1 High | 1 |
 | P2 Medium | 3 |
-| P3 Low | 11 |
-| P4 Optional | 5 |
+| P3 Low | 8 |
+| P4 Optional | 1 |
 
 **Release blockers:** DSK-001 (no Go for the next preview without a new candidate and Go/No-Go). Every other entry
 is not a release blocker.
@@ -48,7 +48,7 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
   used there, [docs/testing.md](testing.md)). No new candidate has been built or evaluated. The README still names
   `v0.2.0-preview.1` as the (unpublished) candidate, and nodestro-studio `platform/versions.json` `products` still
   lists it (ST-027).
-- **Next step:** From the current pins (studio `a1acb1b`, manual-findings cascade 2026-11-05), rebuild with `release.yml`, run
+- **Next step:** From the current pins (`studio.json`; studio `58bb17d` since 2026-11-06), rebuild with `release.yml`, run
   `systems.yml`, write a new Go/No-Go against the Docker-first behavior, update the README status. Publishing needs
   the owner's explicit approval.
 
@@ -126,21 +126,10 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
 ### DSK-009 · Smoke and window test gaps
 
 - **Priority:** P3 Low · **Status:** Open · **Refs:** Bedrock deployment analysis section 6, `spike/README.md`
-- **What:** The smoke test does not check that Settings lists Amazon Bedrock as `not_configured` (no AWS call), and
-  the studio's browser suites have never run in the WebKitGTK window itself (only in Playwright WebKit).
-- **Next step:** Extend `scripts/smoke_inside.sh`; consider one WebKitGTK run of the studio smoke suite.
-
-### DSK-023 · Intermittent keychain failure in the Debian 13 system test
-
-- **Priority:** P3 Low · **Status:** Open · **Refs:** `scripts/vm/test_package.sh` (`keychain`), `.github/workflows/systems.yml`, CI run 42066077232
-- **What:** On `master` at `b3a621c` (a TODO and Dependabot-config change only) the step "Packaged app with an
-  unlocked keychain" failed once on Debian 13: the app logged `keychain not usable (... org.freedesktop.DBus.Error.NoReply:
-  Message recipient disconnected from message bus without replying)`. The same tree passed on the pull request, and
-  the one re-run of the job passed. Root cause not established; the error says gnome-keyring-daemon left the session
-  bus while answering the app's first Secret Service call (startup of the daemon inside `dbus-run-session` is the
-  likely race). The app behaved as designed (session-only tokens), only the test expectation failed.
-- **Next step:** Keep the daemon's log (`--foreground` with stderr to a file, collected by "Fetch the reports") and
-  wait until `secret-tool` answers before the first app start; do not retry the app start to hide the failure.
+- **What:** The studio's browser suites have never run in the WebKitGTK window itself (only in Playwright WebKit).
+  Since 2026-11-06 the smoke test checks that the bundled backend reports Amazon Bedrock as `not_configured` and
+  contacts no AWS host (all outgoing requests go through a logging proxy).
+- **Next step:** Consider one WebKitGTK run of the studio smoke suite (for example through WebKitGTK's WebDriver).
 
 ## Platform coverage
 
@@ -159,48 +148,9 @@ None known beyond DSK-001.
 
 ## Technical debt
 
-### DSK-011 · Release scripts copied from nodestro-server without a sync check
-
-- **Priority:** P3 Low · **Status:** Open · **Refs:** #18, backend audit D-15
-- **What:** Four scripts are byte-identical copies of nodestro-server's; nothing keeps them in sync.
-- **Next step:** Fetch them from the pinned server commit or compare checksums in CI (see #18).
-
-### DSK-013 · Warn when the pinned studio falls behind
-
-- **Priority:** P4 Optional · **Status:** Open · **Refs:** `studio.json`, backend audit D-01
-- **What:** `studio.json` now pins master merge commits (re-pinned with the Live Run Chat cascade), but CI checks only that
-  the pins resolve, not how far they lag behind the latest studio platform commit.
-  Observed in audit round 3: the products pinned studio `0a6a320`, one cascade behind studio master `31bde8e`; the
-  round-3 cascade (desktop #41) moved the pin to `2c072d7`; the manual-findings cascade (2026-11-05) to `a1acb1b`.
-- **Next step:** Add a CI warning for pin distance; keep pinning merge commits in every cascade.
-
-### DSK-018 · Probe bundle build can pick up the builder's user site
-
-- **Priority:** P4 Optional · **Status:** Open · **Refs:** `scripts/vm/build_probe_bundle.sh`
-- **What:** Like `build_backend.sh` before 2026-11-02, it runs the bundled `pip install` without `PYTHONNOUSERSITE`,
-  so packages in the builder's `~/.local/lib/python3.13` would count as installed and be missing from the bundle.
-  Harmless on clean CI runners, where it runs.
-- **Next step:** Set `PYTHONNOUSERSITE=1` there too.
-
-### DSK-019 · Backend log within one session and the fallback log folder
-
-- **Priority:** P4 Optional · **Status:** Open · **Refs:** backend audit round 2 OPS2-10
-- **What:** Since 2026-11-03 the backend log rotates at 10 MiB at start, is private (0600) and the fallback file has a
-  random name; an existing log from an older version is made private when it is opened. Still open: the log can
-  grow without limit during one long session, and the fallback folder in the temporary directory has a predictable
-  name.
-- **Next step:** Rotate while running (size check in the log writer) and create the fallback folder with a random
-  name and mode 0700.
+None known.
 
 ## Later optimizations
-
-### DSK-014 · Bundle size budget
-
-- **Priority:** P4 Optional · **Status:** Open · **Refs:** Bedrock deployment analysis section 1
-- **What:** The bundle is about 260 MB unpacked (botocore alone adds about 31 MB) and no size budget is enforced;
-  `package_linux.sh` only prints `du`. A local build of studio `139bce3` (2026-11-02) is a 96 MB archive with a
-  299 MB interpreter directory, more than the README's figures for `v0.2.0-preview.1`.
-- **Next step:** Add a warning threshold to CI.
 
 ### DSK-020 · GPU libraries for the bundled local model runtime
 
@@ -211,20 +161,13 @@ None known beyond DSK-001.
 - **Next step:** Decide between an optional GPU download in the studio (orkexa's `install_runtime(gpu=True)` into the
   data directory) and a separate GPU archive; measure on real hardware.
 
-### DSK-021 · The local model runtime in the release manifest
-
-- **Priority:** P3 Low · **Status:** Open · **Refs:** `scripts/release_manifest.py` (synced with nodestro-server, DSK-011)
-- **What:** The archive names the bundled Ollama in `backend/ollama/OLLAMA-RELEASE` (version, archive, SHA-256) and
-  ships its license, but `release-manifest.json` does not list it as a component yet.
-- **Next step:** Add bundled binaries to the manifest in nodestro-server's copy first, then sync.
-
 ### DSK-022 · The managed Ollama survives a killed backend
 
 - **Priority:** P3 Low · **Status:** Open · **Refs:** backend audit round 3 OPS3-04, orkexa `local/server.py`
 - **What:** orkexa starts the bundled Ollama in its own session. When the backend is killed (the 10 s stop timeout,
   a crash, an OOM kill, or every stop on Windows, DSK-017), Ollama keeps running with its loaded model. Since orkexa
   #49 (round 3) the next start on Linux and macOS reclaims a stale managed server recorded in its state file;
-  Windows has no reclaim, and the orphan still runs until the next start. The pinned studio `a1acb1b` includes orkexa
+  Windows has no reclaim, and the orphan still runs until the next start. The pinned studio `58bb17d` includes orkexa
   #49 (`e9c2147`); the reclaim is untested on macOS and Windows (orkexa ORK-030).
 - **Next step:** Tie the child's lifetime to the backend (`PR_SET_PDEATHSIG` on Linux, a job object with
   `KILL_ON_JOB_CLOSE` on Windows) in orkexa; verify with a desktop kill test.
@@ -255,10 +198,8 @@ None known beyond DSK-001.
 |---|---|---|---|
 | (pointer) | nodestro-studio | ST-052 (Dependabot policy: weekly groups, cooldown, manual merge; auto-merge prerequisites) | Full entry in studio |
 | DSK-001 | nodestro-studio | ST-027 (`platform/versions.json` `products` still names the withdrawn candidate), ST-018 (RELEASES.md and IMPLEMENTATION_STATUS.md not updated after the sandbox) | Update together |
-| DSK-011 | nodestro-server | `scripts/` (source copies) | Sync with |
-| DSK-021 | nodestro-server | `scripts/release_manifest.py` | Change there first |
+| (pointer) | nodestro-server | `scripts/` (source copies of the release scripts and `pin_distance.py`) | `scripts/check_server_copies.py` compares them with server master in CI; change there first |
 | DSK-020 | nodestro-runtime, orkexa | `local_service.py`, `orkexa.local.install` (same Ollama pin, checked by `fetch_ollama.py --check-against`) | Keep the pins equal |
-| DSK-013 | nodestro-server, nodestro-local-docker | SRV-016, LD-009 (pin distance warning) | Same check in all three |
 | DSK-010 | nodestro-runtime | RT-018 (built-in sandbox `TESTED_SYSTEMS`) | New systems must be validated there first |
 | DSK-022 | orkexa | ORK-030 (managed Ollama on macOS/Windows, orphan reclaim POSIX only) | Fix lives in orkexa |
 

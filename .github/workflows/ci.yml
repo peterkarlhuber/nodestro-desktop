@@ -20,9 +20,18 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-      - run: python3 -m py_compile scripts/release_manifest.py scripts/scan_secrets.py scripts/cargo_licenses.py scripts/fetch_ollama.py
+      - run: python3 -m py_compile scripts/release_manifest.py scripts/scan_secrets.py scripts/cargo_licenses.py scripts/fetch_ollama.py scripts/pin_distance.py scripts/check_server_copies.py
       - run: python3 -I scripts/test_scan_secrets.py
+      - run: python3 -I scripts/test_release_manifest.py
       - run: python3 -I scripts/test_fetch_ollama.py
+      - run: python3 -I scripts/test_pin_distance.py
+      - run: python3 -I scripts/test_check_server_copies.py
+      - name: Release scripts are the copies of nodestro-server's
+        # scripts/check_server_copies.py: a change made only here fails; an older server version is a warning.
+        run: python3 -I scripts/check_server_copies.py
+      - name: The studio pin is not behind studio master (a warning, never blocking)
+        continue-on-error: true
+        run: python3 -I scripts/pin_distance.py studio.json
       - name: The shell's version is a version
         run: grep -Eq '^version = "[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?"$' app/Cargo.toml
       - run: node --check app/ui/start.js && node --check spike/electron/main.js && node --check scripts/npm_licenses.mjs
@@ -81,6 +90,7 @@ jobs:
           python3 scripts/release_manifest.py --product nodestro-desktop --version "ci-${GITHUB_SHA::12}" \
             --out "$RUNNER_TEMP/release" --studio-meta "$RUNNER_TEMP/backend/meta" \
             --python "$RUNNER_TEMP/backend/python/bin/python3" --cargo-manifest app/Cargo.toml \
+            --bundled ollama="$RUNNER_TEMP/backend/ollama/OLLAMA-RELEASE" \
             --platform linux-x86_64 nodestro-linux-x86_64.tar.gz
           python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print("unknown licenses:", m["licenses"]["unknown"])' "$RUNNER_TEMP/release/release-manifest.json"
       - name: Secret scan of the archive

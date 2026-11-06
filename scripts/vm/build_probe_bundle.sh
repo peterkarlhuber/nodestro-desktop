@@ -6,6 +6,10 @@
 #   scripts/vm/build_probe_bundle.sh <runtime-ref> <out-dir>
 set -euo pipefail
 ref="$1"; out="$2"
+# pip must see only the bundle (as in scripts/build_backend.sh): packages in the builder's user site
+# (~/.local/lib/python3.13) or on PYTHONPATH would count as installed and be missing from the bundle.
+export PYTHONNOUSERSITE=1
+unset PYTHONPATH PYTHONHOME
 mkdir -p "$out"
 uv python install 3.13 --install-dir "$out/.pythons" --no-bin >/dev/null
 mv "$(find "$out/.pythons" -mindepth 1 -maxdepth 1 -type d -name 'cpython-*' ! -type l | head -n 1)" "$out/python"

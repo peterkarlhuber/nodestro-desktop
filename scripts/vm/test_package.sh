@@ -7,7 +7,8 @@
 #   bash test_package.sh gui       start the app in a virtual X display (Xvfb) and check the studio opened
 #   bash test_package.sh gnome     start the app in a headless GNOME Shell (Wayland) session and check the same
 #   bash test_package.sh keychain  start the app twice in a D-Bus session with an unlocked GNOME Keyring and check
-#                                  that the MCP token vault key is created there once and reused (never printed)
+#                                  that the MCP token vault key is created there once and reused (never printed);
+#                                  the keyring's log is ~/gnome-keyring.log
 #
 # The sandbox step needs ~/test-wheels (numpy for the compiled-library check, pydantic for the tool runner, and a
 # pip wheel used only to fill the test environment: the app ships no pip).
@@ -63,10 +64,34 @@ print(sum(r["passed"] for r in d["results"]), "of", len(d["results"]), "passed")
     ;;
   keychain)
     # shellcheck disable=SC2016 # expanded by the inner shell
-    exec dbus-run-session -- bash -c '
-      eval "$(printf "vm\n" | gnome-keyring-daemon --unlock --components=secrets)"
-      bash "$0" keychain-inside
-    ' "$0"
+    exec dbus-run-session -- bash -c 'bash "$0" keyring-start && bash "$0" keychain-inside' "$0"
+    ;;
+  keyring-start)
+    # GNOME Keyring for this D-Bus session, unlocked, and ready before the app's first Secret Service call.
+    # A call that arrives while no daemon owns org.freedesktop.secrets makes the bus start a second daemon through
+    # D-Bus activation; one of the two then leaves the bus, and the call ends with "NoReply: Message recipient
+    # disconnected". So: start the daemon in the foreground with its output in ~/gnome-keyring.log (collected with
+    # the reports), wait until it owns the name (asking the bus, which activates nothing), then until a store and a
+    # clear of a probe item answer. The app is never started again to hide a failure.
+    printf "vm\n" | gnome-keyring-daemon --foreground --unlock --components=secrets >"$HOME/gnome-keyring.log" 2>&1 &
+    owned=no
+    for _ in $(seq 1 100); do
+      if dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus \
+        org.freedesktop.DBus.NameHasOwner string:org.freedesktop.secrets 2>/dev/null | grep -q "boolean true"; then
+        owned=yes; break
+      fi
+      sleep 0.1
+    done
+    if [ "$owned" != yes ]; then echo "gnome-keyring-daemon did not take the Secret Service name"; cat "$HOME/gnome-keyring.log"; exit 1; fi
+    for _ in $(seq 1 50); do
+      if printf probe | secret-tool store --label="Nodestro test probe" service nodestro-test-probe username probe 2>/dev/null \
+        && secret-tool clear service nodestro-test-probe username probe 2>/dev/null; then
+        echo "GNOME Keyring is ready (unlocked, Secret Service answers)"
+        exit 0
+      fi
+      sleep 0.2
+    done
+    echo "the Secret Service does not answer"; cat "$HOME/gnome-keyring.log"; exit 1
     ;;
   keychain-inside)
     lookup() { secret-tool lookup service Nodestro username mcp-token-vault-key 2>/dev/null || true; }

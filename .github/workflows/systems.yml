@@ -130,6 +130,7 @@ jobs:
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat probes.json' >"$RUNNER_TEMP/report/probes.json" || true
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat app.out' >"$RUNNER_TEMP/report/app.out" || true
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat gnome-shell.log' >"$RUNNER_TEMP/report/gnome-shell.log" || true
+          scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat gnome-keyring.log' >"$RUNNER_TEMP/report/gnome-keyring.log" || true
           scripts/vm/vm.sh ssh "$RUNNER_TEMP/vm" tester 'cat .local/share/org.nodestro.desktop/logs/backend.log' >"$RUNNER_TEMP/report/backend.log" || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
