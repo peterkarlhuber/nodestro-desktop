@@ -52,7 +52,17 @@ def main(argv: list[str] | None = None) -> int:
                 failed = True
                 continue
             mine = git(server, "hash-object", "--no-filters", str(local)).strip()
-            current = git(server, "rev-parse", f"origin/master:{path}").strip()
+            on_master = subprocess.run(
+                ["git", "-C", str(server), "rev-parse", "-q", "--verify", f"origin/master:{path}"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if on_master.returncode != 0:
+                print(f"::error::{path} is not on nodestro-server master: add it there first, then copy it here")
+                failed = True
+                continue
+            current = on_master.stdout.strip()
             if mine == current:
                 print(f"{path}: same as nodestro-server master")
                 continue

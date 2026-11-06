@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests of check_server_copies.py against a local stand-in for nodestro-server: identical copies pass, an older
-version of the server's file warns (exit 0), a change that exists only here fails (exit 1), and a missing copy fails.
+version of the server's file warns (exit 0), a change that exists only here fails (exit 1), and a missing copy or
+one the server does not have fails.
 Run: python3 -I scripts/test_check_server_copies.py"""
 
 from __future__ import annotations
@@ -87,6 +88,14 @@ class ServerCopies(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 1, out)
         self.assertIn("is missing", out)
+
+    def test_a_copy_the_server_does_not_have_fails(self) -> None:
+        last = check_server_copies.SHARED[-1]
+        git(self.server, "rm", "-q", last)
+        git(self.server, "commit", "-q", "-m", "not on the server")
+        code, out = self.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"::error::{last} is not on nodestro-server master", out)
 
 
 if __name__ == "__main__":
