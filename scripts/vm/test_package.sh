@@ -67,7 +67,7 @@ print(sum(r["passed"] for r in d["results"]), "of", len(d["results"]), "passed")
     exec dbus-run-session -- bash -c 'bash "$0" keyring-start && bash "$0" keychain-inside' "$0"
     ;;
   keyring-start)
-    # GNOME Keyring for this D-Bus session, unlocked, and ready before the app's first Secret Service call (DSK-023).
+    # GNOME Keyring for this D-Bus session, unlocked, and ready before the app's first Secret Service call.
     # A call that arrives while no daemon owns org.freedesktop.secrets makes the bus start a second daemon through
     # D-Bus activation; one of the two then leaves the bus, and the call ends with "NoReply: Message recipient
     # disconnected". So: start the daemon in the foreground with its output in ~/gnome-keyring.log (collected with
