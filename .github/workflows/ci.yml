@@ -66,6 +66,12 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
           cargo build --locked --release
+      - name: The shell's Windows code compiles and passes clippy (no Windows build yet, DSK-004)
+        # Cross-checking needs only the target's standard library; linking and the backend need Windows.
+        working-directory: app
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo clippy --locked --target x86_64-pc-windows-msvc -- -D warnings
       - name: The MCP token vault key in a real keychain (Secret Service, unlocked gnome-keyring)
         working-directory: app
         run: |

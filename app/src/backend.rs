@@ -64,6 +64,8 @@ pub fn open_log(log: &Path, rotate_bytes: u64) -> std::io::Result<File> {
 }
 
 /// [`open_log`], and the path of the file it opened (`log` or the fallback file).
+// Only Unix has a fallible step in the `and_then` below; elsewhere it could be a `map`.
+#[cfg_attr(not(unix), allow(clippy::bind_instead_of_map))]
 fn open_log_at(log: &Path, rotate_bytes: u64) -> std::io::Result<(File, PathBuf)> {
     if let Some(parent) = log.parent() {
         let _ = fs::create_dir_all(parent);
@@ -95,6 +97,7 @@ fn open_log_at(log: &Path, rotate_bytes: u64) -> std::io::Result<(File, PathBuf)
 /// directory with an unpredictable name, readable by the user only (never a folder someone else created there).
 pub fn fallback_log_dir() -> std::io::Result<PathBuf> {
     let dir = std::env::temp_dir().join(format!("nodestro-desktop-{}", &new_secret()[..16]));
+    #[cfg_attr(not(unix), allow(unused_mut))] // only Unix sets a mode
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {
@@ -318,6 +321,14 @@ impl Backend {
             .env_remove("NODESTRO_HOST")
             .env_remove("NODESTRO_ALLOWED_HOSTS")
             .stdin(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // The release shell is a GUI program (`windows_subsystem = "windows"`): without this flag Windows opens
+            // a console window for `python.exe` next to the app (DSK-017). Its output still reaches the log pipes.
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            process.creation_flags(CREATE_NO_WINDOW);
+        }
         if let Some(ollama) = &command.ollama {
             if std::env::var_os(OLLAMA_ENV).is_none() {
                 process.env(OLLAMA_ENV, ollama);
