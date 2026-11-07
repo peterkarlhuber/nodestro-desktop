@@ -1,0 +1,115 @@
+# The nightly run of the default branch (CI-FAST W0, S4): every PR and push check of master once more (ci.yml, with
+# its packaged-app tests on real systems, systems.yml), and the desktop app built with the CURRENT nodestro-studio master
+# instead of the pinned studio.json commit (catches a studio change that breaks the app before the next pin bump), then
+# smoke-tested on a clean container. (Not on the real systems: systems.yml names its report artifacts by system only,
+# and ci.yml's call already uses those names in this run.) A red run opens or updates the issue "Nightly failed"; a green run
+# closes it. release.yml and publish.yml require a green nightly of the last 36 hours (job nightly-gate).
+# Publishes nothing: no release, no tag; the archives stay workflow artifacts. No secrets (the repositories are public).
+# No test-ID inventory: the tests are Rust (cargo test --list needs the full WebKitGTK build) and unittest scripts.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      canary_fail:
+        description: Make the canary job fail, to prove that a red nightly opens the issue
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  studio-master:
+    # The steps of ci.yml's app job that build and test the archive, with the backend built from studio master
+    # (scripts/build_backend.sh takes the studio commit as its second argument; studio.json is not touched).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve nodestro-studio master
+        id: studio
+        run: |
+          set -euo pipefail
+          sha=$(git ls-remote https://github.com/peterkarlhuber/nodestro-studio.git refs/heads/master | cut -f1)
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve nodestro-studio master"; exit 1; }
+          pinned=$(python3 -I -c 'import json; print(json.load(open("studio.json"))["nodestro-studio"])')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Desktop app with nodestro-studio master"
+            echo "- studio master: \`$sha\`"
+            echo "- pinned in studio.json: \`$pinned\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: System libraries of the Tauri shell (WebKitGTK 4.1)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev libxdo-dev
+      - working-directory: app
+        run: cargo build --locked --release
+      - run: python3 -m pip install --user uv==0.13.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Build the backend from studio master
+        env:
+          STUDIO: ${{ steps.studio.outputs.sha }}
+        run: |
+          set -o pipefail
+          scripts/build_backend.sh "$RUNNER_TEMP/backend" "$STUDIO" 2>&1 | tee "$RUNNER_TEMP/build.log"
+      - name: Name a dependency conflict of studio master
+        # Studio master can pin a component whose own pins lag behind (pip ResolutionImpossible): say so plainly.
+        if: ${{ failure() }}
+        run: |
+          if grep -q ResolutionImpossible "$RUNNER_TEMP/build.log" 2>/dev/null; then
+            echo "::error::studio master cannot be installed: pip ResolutionImpossible (a component pin lags behind)"
+            { echo "**pip ResolutionImpossible:**"; echo '```'; grep -B 5 -A 25 -m 1 "ResolutionImpossible\|conflict" "$RUNNER_TEMP/build.log" | head -n 60; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Package
+        run: scripts/package_linux.sh app/target/release/nodestro-desktop "$RUNNER_TEMP/backend" nodestro-linux-x86_64.tar.gz
+      - name: Smoke test on a clean Ubuntu 24.04 container
+        run: scripts/smoke_test.sh nodestro-linux-x86_64.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nodestro-linux-x86_64-studio-master
+          path: nodestro-linux-x86_64.tar.gz
+          retention-days: 7
+
+  canary:
+    # Proves that a red nightly opens an issue (CI-FAST W0 acceptance).
+    if: inputs.canary_fail
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 1
+
+  report:
+    needs: [ci, studio-master, canary]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open, update or close the nightly issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Nightly failed"
+          failed=$(python3 -c 'import json,os; n=json.loads(os.environ["NEEDS"]); print(" ".join(k for k,v in n.items() if v["result"] not in ("success","skipped")))')
+          number=$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq "map(select(.title==\"$title\"))[0].number // empty")
+          if [ -n "$failed" ]; then
+            body="Nightly run $RUN_URL failed: $failed (commit $GITHUB_SHA)."
+            if [ -n "$number" ]; then gh issue comment "$number" --body "$body"; else gh issue create --title "$title" --body "$body"; fi
+            exit 1
+          elif [ -n "$number" ]; then
+            gh issue comment "$number" --body "Nightly run $RUN_URL is green again (commit $GITHUB_SHA). Closing."
+            gh issue close "$number"
+          fi
