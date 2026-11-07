@@ -10,9 +10,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # CI-FAST AP1: a new push to a pull request cancels the older run of that pull request. Every other run (master
+  # push, schedule, dispatch, and the nightly's workflow_call, where github.workflow is "Nightly") gets its own group
+  # from github.run_id, so it is never cancelled and never waits behind another run.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   scripts:
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # CI-FAST AP1: p99 2.8 min (successful runs 2026-11-01..07)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,6 +51,7 @@ jobs:
     # Known vulnerabilities in the shell's Rust dependencies (app/Cargo.lock), from the RustSec advisory database.
     # Advisories of the kinds "unmaintained" and "unsound" are reported as warnings and do not fail the job.
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # CI-FAST AP1: p99 3.8 min (successful runs 2026-11-01..07)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,6 +62,7 @@ jobs:
 
   app:
     runs-on: ubuntu-latest
+    timeout-minutes: 70 # CI-FAST AP1: p99 44.8 min (successful runs 2026-11-01..07)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
