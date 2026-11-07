@@ -29,6 +29,7 @@ jobs:
     # The steps of ci.yml's app job that build and test the archive, with the backend built from studio master
     # (scripts/build_backend.sh takes the studio commit as its second argument; studio.json is not touched).
     runs-on: ubuntu-latest
+    timeout-minutes: 70 # CI-FAST AP1: no run data yet; as the CI app job (p99 44.8 min), which builds the same shell and backend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,6 +85,7 @@ jobs:
     # Proves that a red nightly opens an issue (CI-FAST W0 acceptance).
     if: inputs.canary_fail
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # CI-FAST AP1: no run data yet (nightly-only); a short job
     steps:
       - run: exit 1
 
@@ -91,6 +93,7 @@ jobs:
     needs: [ci, studio-master, canary]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # CI-FAST AP1: no run data yet (nightly-only); a short job
     permissions:
       issues: write
     steps:
