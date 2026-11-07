@@ -48,7 +48,7 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
   used there, [docs/testing.md](testing.md)). No new candidate has been built or evaluated. The README still names
   `v0.2.0-preview.1` as the (unpublished) candidate, and nodestro-studio `platform/versions.json` `products` still
   lists it (ST-027).
-- **Next step:** From the current pins (`studio.json`; studio `9c0a6bd` since 2026-11-07), rebuild with `release.yml`, run
+- **Next step:** From the current pins (`studio.json`; studio `5318cea` since 2026-11-07), rebuild with `release.yml`, run
   `systems.yml`, write a new Go/No-Go against the Docker-first behavior, update the README status. Publishing needs
   the owner's explicit approval.
 
