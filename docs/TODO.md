@@ -3,7 +3,7 @@
 > Open work for this repository: release blockers, known bugs, security follow-ups, technical debt and planned improvements.
 > GitHub issues are the source of truth for details; this file is the entry point and summary.
 >
-> **Last full review:** 2026-11-07 against `master` at `425cfa0` (TODO abatement round 5).
+> **Last full review:** 2026-11-07 against `master` at `5d1f35a` (TODO abatement round 6).
 
 ## Summary
 
@@ -12,7 +12,7 @@
 | P0 Critical | 0 |
 | P1 High | 1 |
 | P2 Medium | 3 |
-| P3 Low | 8 |
+| P3 Low | 7 |
 | P4 Optional | 1 |
 
 **Release blockers:** DSK-001 (no Go for the next preview without a new candidate and Go/No-Go). Every other entry
@@ -70,7 +70,7 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
   `python.exe` with `CREATE_NO_WINDOW` (the release shell is a GUI program, so a console window would open next to
   the app), and CI cross-checks the Windows code with clippy; neither has run on Windows. `stop` still has no
   graceful path off Unix: `TerminateProcess` right away, so the backend's shutdown does not run. The managed Ollama
-  no longer survives that once the pin includes orkexa's job object (DSK-022).
+  ends with the killed backend through orkexa's job object (orkexa #60); that path has not run on Windows.
 - **Next step:** On the first Windows test build, confirm that no console window opens; then add a graceful stop
   (a shutdown request on the loopback API or a console control event, which needs the backend in
   nodestro-api/nodestro-studio to handle it), killed after the timeout.
@@ -163,24 +163,6 @@ None known.
 - **Next step:** Decide between an optional GPU download in the studio (orkexa's `install_runtime(gpu=True)` into the
   data directory) and a separate GPU archive; measure on real hardware.
 
-### DSK-022 · The managed Ollama survives a killed backend
-
-- **Priority:** P3 Low · **Status:** Blocked (on the runtime's orkexa pin) · **Refs:** backend audit round 3 OPS3-04,
-  orkexa #60 (`31e00cf`, `local/_lifeline.py`), `scripts/smoke_inside.sh` (`kill_check`)
-- **What:** When the backend is killed (the 10 s stop timeout, a crash, an OOM kill, or every stop on Windows,
-  DSK-017), the bundled Ollama keeps running with its loaded model until the next start reclaims it (Linux and macOS
-  only). orkexa #60 (merged as `31e00cf`) fixes it: a watcher process on Linux and macOS, run by the backend's own
-  interpreter, and a job object with kill-on-close on Windows. The desktop needs no code change for it: the bundle
-  runs a relocatable CPython (not a frozen executable, which would get no watcher), the shell kills the Python
-  process itself, and on Windows `TerminateProcess` closes the job's handle. Since 2026-11-07 the smoke test's
-  `kill_check` SIGKILLs the bundled backend and requires its `ollama serve` to be gone within 15 s; it reports
-  itself skipped while the bundled orkexa has no lifeline. A dry run against orkexa `31e00cf`'s lifeline with a
-  stand-in backend passed, and failed as expected without the watcher. The pinned runtime f26dac4 (and runtime
-  master) still pin orkexa `1b61fda`, which predates #60.
-- **Next step:** Once the runtime pins orkexa `31e00cf` or later and the pin cascade brings it into `studio.json`,
-  check that the CI smoke test prints `kill check passed`, then close this entry. Windows and macOS stay with
-  DSK-004 and orkexa's `platforms.yml` (ORK-030).
-- **Depends on:** nodestro-runtime orkexa pin, then the studio pin (platform coverage in orkexa ORK-030)
 
 ## Accepted risks
 
@@ -210,7 +192,6 @@ None known.
 | (pointer) | nodestro-server | `scripts/` (source copies of the release scripts and `pin_distance.py`) | `scripts/check_server_copies.py` compares them with server master in CI; change there first |
 | DSK-020 | nodestro-runtime, orkexa | `local_service.py`, `orkexa.local.install` (same Ollama pin, checked by `fetch_ollama.py --check-against`) | Keep the pins equal |
 | DSK-010 | nodestro-runtime | RT-018 (built-in sandbox `TESTED_SYSTEMS`) | New systems must be validated there first |
-| DSK-022 | orkexa, nodestro-runtime | orkexa #60 (`31e00cf`), the runtime's orkexa pin; ORK-030 (macOS/Windows) | Fix lives in orkexa; reaches the bundle with the runtime and studio pins |
 
 ## CI access to private repositories
 
