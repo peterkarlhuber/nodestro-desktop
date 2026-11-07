@@ -79,7 +79,7 @@ jobs:
             fi
             export PATH="$(dirname "$rc"):$PATH"
           fi
-          llvm-rc --version
+          command -v llvm-rc
           rustup target add x86_64-pc-windows-msvc
           cargo clippy --locked --target x86_64-pc-windows-msvc -- -D warnings
       - name: The MCP token vault key in a real keychain (Secret Service, unlocked gnome-keyring)
