@@ -66,6 +66,22 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
           cargo build --locked --release
+      - name: The shell's Windows code compiles and passes clippy (no Windows build yet, DSK-004)
+        # Cross-checking needs only the target's standard library; linking and the backend need Windows.
+        working-directory: app
+        run: |
+          # The build script compiles the Windows resources with llvm-rc (tauri-winres); it is not on PATH by default.
+          if ! command -v llvm-rc >/dev/null; then
+            rc=$(ls /usr/lib/llvm-*/bin/llvm-rc 2>/dev/null | sort -V | tail -n 1 || true)
+            if [ -z "$rc" ]; then
+              sudo apt-get install -y llvm
+              rc=$(ls /usr/lib/llvm-*/bin/llvm-rc | sort -V | tail -n 1)
+            fi
+            export PATH="$(dirname "$rc"):$PATH"
+          fi
+          command -v llvm-rc
+          rustup target add x86_64-pc-windows-msvc
+          cargo clippy --locked --target x86_64-pc-windows-msvc -- -D warnings
       - name: The MCP token vault key in a real keychain (Secret Service, unlocked gnome-keyring)
         working-directory: app
         run: |

@@ -3,7 +3,7 @@
 > Open work for this repository: release blockers, known bugs, security follow-ups, technical debt and planned improvements.
 > GitHub issues are the source of truth for details; this file is the entry point and summary.
 >
-> **Last full review:** 2026-11-06 against `master` at `5d1e8e9` (TODO abatement round).
+> **Last full review:** 2026-11-07 against `master` at `23b1e60` (TODO abatement round 4).
 
 ## Summary
 
@@ -66,13 +66,14 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
 ### DSK-017 · Windows: starting and stopping the backend
 
 - **Priority:** P3 Low · **Status:** Open · **Refs:** `app/src/backend.rs` (`Backend::command`, `stop`), docs/testing.md
-- **What:** Found by reading the code; Windows is not built (DSK-004). The release shell is a GUI program
-  (`windows_subsystem = "windows"`) that starts the console program `python.exe` without `CREATE_NO_WINDOW`, so a
-  console window is expected next to the app. `stop` has no graceful path off Unix: `TerminateProcess` right away,
-  so the backend's shutdown (and stopping the processes it started) does not run. Since the bundled Ollama
-  (desktop #36), an immediate kill also leaves the managed Ollama running (audit round 3 OPS3-04, see DSK-022).
-- **Next step:** Confirm on the first Windows test build; then start with `CREATE_NO_WINDOW` and stop gracefully
-  (for example a shutdown request on the loopback API or a console control event), killed after the timeout.
+- **What:** Found by reading the code; Windows is not built (DSK-004). Since 2026-11-07 the shell starts
+  `python.exe` with `CREATE_NO_WINDOW` (the release shell is a GUI program, so a console window would open next to
+  the app), and CI cross-checks the Windows code with clippy; neither has run on Windows. `stop` still has no
+  graceful path off Unix: `TerminateProcess` right away, so the backend's shutdown does not run. The managed Ollama
+  no longer survives that once the pin includes orkexa's job object (DSK-022).
+- **Next step:** On the first Windows test build, confirm that no console window opens; then add a graceful stop
+  (a shutdown request on the loopback API or a console control event, which needs the backend in
+  nodestro-api/nodestro-studio to handle it), killed after the timeout.
 
 ## Architecture and modularity
 
@@ -97,7 +98,8 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
   code and the shutdown ([docs/testing.md](testing.md)). It ran on Linux x86_64 only; it has not run on a Mac.
   Windows has documented, untested steps (`build_backend.sh` assumes `python/bin/python3`). Cross-building is not
   possible: `cargo check --target aarch64-apple-darwin` fails on Linux (Objective-C needs Apple's toolchain and SDK);
-  `cargo check --target x86_64-pc-windows-msvc` passes, but linking and the backend need Windows.
+  `cargo check --target x86_64-pc-windows-msvc` passes (CI runs clippy for that target since 2026-11-07), but
+  linking and the backend need Windows.
 - **Next step:** Run `scripts/local_test_build.sh` on an Apple-silicon and an Intel Mac and record the results; owner
   decides on platforms and runners; then add build and smoke jobs. Depends on DSK-003 for anything distributed.
 
@@ -165,13 +167,14 @@ None known.
 
 - **Priority:** P3 Low · **Status:** Open · **Refs:** backend audit round 3 OPS3-04, orkexa `local/server.py`
 - **What:** orkexa starts the bundled Ollama in its own session. When the backend is killed (the 10 s stop timeout,
-  a crash, an OOM kill, or every stop on Windows, DSK-017), Ollama keeps running with its loaded model. Since orkexa
-  #49 (round 3) the next start on Linux and macOS reclaims a stale managed server recorded in its state file;
-  Windows has no reclaim, and the orphan still runs until the next start. The pinned studio `58bb17d` includes orkexa
-  #49 (`e9c2147`); the reclaim is untested on macOS and Windows (orkexa ORK-030).
-- **Next step:** Tie the child's lifetime to the backend (`PR_SET_PDEATHSIG` on Linux, a job object with
-  `KILL_ON_JOB_CLOSE` on Windows) in orkexa; verify with a desktop kill test.
-- **Depends on:** orkexa (managed server; platform coverage in ORK-030)
+  a crash, an OOM kill, or every stop on Windows, DSK-017), Ollama keeps running with its loaded model until the
+  next start reclaims it (Linux and macOS only). The fix is in orkexa (branch `ws-r4ops`, 2026-11-07, not yet
+  merged or pinned): a watcher process on Linux and macOS stops the server when the backend ends without stopping
+  it, and a job object with kill-on-close ends it on Windows (orkexa `tests/test_managed_server_lifetime.py`, run
+  on Linux; the Windows and macOS runs come with orkexa's `platforms.yml`).
+- **Next step:** After the pin cascade brings that orkexa commit into `studio.json`, add a kill test to the smoke
+  test (SIGKILL the bundled backend, the managed `ollama serve` must be gone within seconds) and close this entry.
+- **Depends on:** orkexa merge and the studio pin (platform coverage in ORK-030)
 
 ## Accepted risks
 
