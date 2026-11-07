@@ -53,6 +53,46 @@ print(f"bedrock check passed: not_configured, no AWS call (other outgoing reques
 PY
 }
 
+# The managed Ollama ends with a killed backend (DSK-022): the bundled backend starts the bundled Ollama on launch
+# (`ollama serve`, in a session of its own); after SIGKILL of the backend, Orkexa's lifeline watcher must stop that
+# server within seconds. Runs once the bundled Orkexa has the lifeline (orkexa 31e00cf, through the runtime and studio
+# pins); before that it only says so, because the next start's reclaim is then the only cleanup.
+kill_check() {
+  local root=/opt/nodestro python secret port data waited
+  [ -n "${NODESTRO_APP:-}" ] && root="$(dirname "$NODESTRO_APP")"
+  python="$root/backend/python/bin/python3"
+  local ollama="$root/backend/ollama/bin/ollama"
+  if ! "$python" -I -c 'import orkexa.local._lifeline' 2>/dev/null; then
+    echo "kill check skipped: the bundled Orkexa has no lifeline for the managed Ollama yet (DSK-022)"
+    return 0
+  fi
+  secret=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  port=$("$python" -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+  data=$(mktemp -d)
+  printf '{"launch_secret":"%s","vault_key":null}' "$secret" | HOME="$data" NODESTRO_OLLAMA_BINARY="$ollama" \
+    "$python" -I -m nodestro_studio --no-browser --host 127.0.0.1 --port "$port" --secrets-fd 0 --data-dir "$data/nodestro" \
+    > "$data/backend.log" 2>&1 &
+  local backend=$!
+  waited=0
+  until pgrep -f "$ollama serve" >/dev/null; do
+    sleep 0.5; waited=$((waited + 1))
+    if [ "$waited" -gt 120 ]; then
+      echo "kill check: the backend did not start the managed Ollama"; cat "$data/backend.log"; kill -INT "$backend"
+      return 1
+    fi
+  done
+  kill -KILL "$backend"; wait "$backend" 2>/dev/null || true
+  waited=0
+  while pgrep -f "$ollama serve" >/dev/null; do
+    sleep 0.5; waited=$((waited + 1))
+    if [ "$waited" -gt 30 ]; then
+      echo "kill check: the managed Ollama outlived the killed backend by 15 s"; pkill -KILL -f "$ollama serve" || true
+      return 1
+    fi
+  done
+  echo "kill check passed: the managed Ollama ended with the killed backend"
+}
+
 if [ "${1:-}" = as-user ]; then
   cd ~
   start=$(date +%s)
@@ -91,6 +131,7 @@ if [ "${1:-}" = as-user ]; then
   if grep -q Traceback "$log"; then echo "the backend logged a traceback"; exit 1; fi
   grep -q "Application shutdown complete" "$log"
   bedrock_check
+  kill_check
   exit 0
 fi
 export DEBIAN_FRONTEND=noninteractive
@@ -109,6 +150,10 @@ tar -xzf /tmp/nodestro.tar.gz -C /opt
 su person -s /bin/bash -c "bash /tmp/smoke_inside.sh as-user"
 if pgrep -f nodestro_studio >/dev/null; then
   echo "a backend process was left behind" >&2
+  exit 1
+fi
+if pgrep -f "ollama serve" >/dev/null; then
+  echo "a managed Ollama server was left behind" >&2
   exit 1
 fi
 echo "smoke test passed"
