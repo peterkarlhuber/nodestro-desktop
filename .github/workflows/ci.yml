@@ -154,15 +154,36 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-      - name: Start Colima (macOS Intel)
+      - name: Install Colima (macOS Intel)
+        id: colima
         if: matrix.docker
         run: |
           brew install colima docker
-          if ! colima start --cpu 3 --memory 6 --disk 40; then
+          echo "version=$(colima version | awk 'NR==1 {print $3}')" >> "$GITHUB_OUTPUT"
+      # The VM image comes from a GitHub release of colima-core; when that download fails (HTTP 504 on 2026-11-08 for
+      # over an hour), the cached image keeps the job independent of it.
+      - name: Colima VM image cache
+        if: matrix.docker
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/Library/Caches/colima
+            ~/Library/Caches/lima
+          key: colima-image-${{ runner.os }}-${{ runner.arch }}-${{ steps.colima.outputs.version }}
+      - name: Start Colima (macOS Intel)
+        if: matrix.docker
+        run: |
+          # Three attempts, vz first and QEMU as fallback each time, with a pause for transient download errors.
+          for attempt in 1 2 3; do
+            if colima start --cpu 3 --memory 6 --disk 40; then break; fi
             colima delete --force || true
-            brew install qemu
-            colima start --vm-type qemu --cpu 3 --memory 6 --disk 40
-          fi
+            brew list qemu >/dev/null 2>&1 || brew install qemu
+            if colima start --vm-type qemu --cpu 3 --memory 6 --disk 40; then break; fi
+            colima delete --force || true
+            if [ "$attempt" = 3 ]; then echo "::error::Colima did not start in 3 attempts"; exit 1; fi
+            echo "::warning::Colima start attempt $attempt failed; retrying in $((attempt * 90)) s"
+            sleep $((attempt * 90))
+          done
           docker info
       - name: Build and stage the test app
         run: |
