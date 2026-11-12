@@ -170,24 +170,49 @@ jobs:
             ~/Library/Caches/colima
             ~/Library/Caches/lima
           key: colima-image-${{ runner.os }}-${{ runner.arch }}-${{ steps.colima.outputs.version }}
-      - name: Start Colima (macOS Intel)
+      # CI-FAST AP6: Colima starts in the background (about 6 minutes) while the test app builds (about 13 minutes);
+      # "Wait for Colima" below joins it before the first step that needs Docker. Same command and retries as before.
+      - name: Start Colima in the background (macOS Intel)
         if: matrix.docker
         run: |
+          cat > "$RUNNER_TEMP/colima-start.sh" <<'SH'
           # Three attempts, vz first and QEMU as fallback each time, with a pause for transient download errors.
           for attempt in 1 2 3; do
-            if colima start --cpu 3 --memory 6 --disk 40; then break; fi
+            if colima start --cpu 3 --memory 6 --disk 40; then echo ok > "$RUNNER_TEMP/colima.status"; exit 0; fi
             colima delete --force || true
             brew list qemu >/dev/null 2>&1 || brew install qemu
-            if colima start --vm-type qemu --cpu 3 --memory 6 --disk 40; then break; fi
+            if colima start --vm-type qemu --cpu 3 --memory 6 --disk 40; then echo ok > "$RUNNER_TEMP/colima.status"; exit 0; fi
             colima delete --force || true
-            if [ "$attempt" = 3 ]; then echo "::error::Colima did not start in 3 attempts"; exit 1; fi
+            if [ "$attempt" = 3 ]; then echo "::error::Colima did not start in 3 attempts"; break; fi
             echo "::warning::Colima start attempt $attempt failed; retrying in $((attempt * 90)) s"
             sleep $((attempt * 90))
           done
-          docker info
+          echo failed > "$RUNNER_TEMP/colima.status"
+          SH
+          nohup bash "$RUNNER_TEMP/colima-start.sh" > "$RUNNER_TEMP/colima-start.log" 2>&1 &
+      # The shell's dependencies, compiled (about 7 of the 13 build minutes without it). Keyed by Cargo.lock: a changed
+      # lock file starts from the newest older cache and cargo rebuilds what changed.
+      - name: Cargo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            app/target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-
       - name: Build and stage the test app
         run: |
           scripts/local_test_build.sh --build-only "$RUNNER_TEMP/local-test"
+      - name: Wait for Colima (macOS Intel)
+        if: matrix.docker
+        timeout-minutes: 25
+        run: |
+          until [ -f "$RUNNER_TEMP/colima.status" ]; do sleep 5; done
+          cat "$RUNNER_TEMP/colima-start.log"
+          [ "$(cat "$RUNNER_TEMP/colima.status")" = ok ] || { echo "::error::Colima did not start"; exit 1; }
+          docker info
       - name: Test with Docker (Colima)
         if: matrix.docker
         run: scripts/local_test_build.sh --test-only "$RUNNER_TEMP/local-test"
