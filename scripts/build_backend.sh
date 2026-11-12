@@ -10,9 +10,11 @@
 #    Nothing is fetched at run time.
 # 3. The studio commit, its versions.json and package-lock.json go to <output-dir>/meta for the release manifest,
 #    and the license texts of the interface's npm packages to <output-dir>/meta/npm-licenses.txt for the archive.
-# 4. pip, build tools and caches are removed; import checks prove the studio and the Amazon Bedrock provider
-#    (boto3, botocore's service models) are in the bundle. The app starts `python/bin/python3 -I -m nodestro_studio`,
-#    never the generated `nodestro` script (it names the interpreter by its build-time path).
+# 4. The studio's scripts/lock_check.py checks the installed components against its versions.json (the build fails
+#    on a mismatch). pip, build tools and caches are removed; import checks prove the studio and the Amazon Bedrock
+#    provider (boto3, botocore's service models) are in the bundle. The app starts
+#    `python/bin/python3 -I -m nodestro_studio`, never the generated `nodestro` script (it names the interpreter by its
+#    build-time path).
 # 5. The local model runtime: Ollama of the pinned release (scripts/fetch_ollama.py: SHA-256 against the release's
 #    pinned checksum, CPU and Vulkan backends without the CUDA libraries) in <output-dir>/ollama. The app passes its
 #    executable to the backend as NODESTRO_OLLAMA_BINARY. NODESTRO_OLLAMA_ARCHIVE and NODESTRO_OLLAMA_LICENSE name
@@ -52,6 +54,14 @@ node "$here/scripts/npm_licenses.mjs" "$work/frontend" >"$out/meta/npm-licenses.
 "$out/python/bin/python3" -m pip uninstall --quiet --yes --root-user-action=ignore build pyproject_hooks packaging || true
 "$out/python/bin/python3" -m pip install --quiet --no-warn-script-location --root-user-action=ignore "$work"/dist/*.whl
 test -f "$out"/python/lib/python3.*/site-packages/nodestro_studio/static/index.html
+# Every component at exactly the repository, commit and version the studio pins, and no other commit declared: the
+# studio's scripts/lock_check.py, offline, before pip goes (a red check fails the build). A studio commit from before
+# the script (nodestro-studio scripts/lock_check.py) has nothing to run.
+if [ -f "$work/scripts/lock_check.py" ]; then
+  "$out/python/bin/python3" -I "$work/scripts/lock_check.py" --profile studio --versions "$work/platform/versions.json"
+else
+  echo "lock_check: not run, the studio $(cat "$out/meta/studio-commit") has no scripts/lock_check.py"
+fi
 "$out/python/bin/python3" -m pip uninstall --quiet --yes --root-user-action=ignore pip
 find "$out/python" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
 "$out/python/bin/python3" -I -c "import nodestro_api.launch, nodestro_studio.app"
