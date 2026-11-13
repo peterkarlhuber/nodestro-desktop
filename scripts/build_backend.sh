@@ -3,10 +3,13 @@
 #
 #   scripts/build_backend.sh <output-dir> [studio-commit-or-checkout]
 #
-# The studio commit defaults to the one in studio.json. The studio pins every component by full commit SHA.
+# The studio commit defaults to the one in studio.json. The studio's lock (platform/internal.txt) pins every internal
+# package by full commit SHA. A studio without the lock, platform/uploaded-prior-to or scripts/lock_check.py fails the
+# build.
 # 1. uv fetches a python-build-standalone CPython 3.13 (the build uv pins, with checksums).
 # 2. The studio is checked out, its interface is built (Node.js is a build-time tool only), and its wheel
-#    is installed into that interpreter. pip clones the public component repositories anonymously (no token).
+#    is installed into that interpreter with its lock (pip install -r platform/internal.txt). pip clones the public
+#    component repositories anonymously (no token).
 #    Nothing is fetched at run time.
 # 3. The studio commit, its versions.json and package-lock.json go to <output-dir>/meta for the release manifest,
 #    and the license texts of the interface's npm packages to <output-dir>/meta/npm-licenses.txt for the archive.
@@ -49,43 +52,34 @@ fi
 mkdir -p "$out/meta"
 if [ -d "$source_ref" ]; then git -C "$source_ref" rev-parse HEAD >"$out/meta/studio-commit"; else git -C "$work" rev-parse HEAD >"$out/meta/studio-commit"; fi
 cp "$work/platform/versions.json" "$work/frontend/package-lock.json" "$out/meta/"
+# The studio's own files this build requires: a studio commit without one of them fails here, before anything installs.
+for required in platform/uploaded-prior-to scripts/pip_cutoff.py platform/internal.txt scripts/lock_check.py; do
+  if [ ! -f "$work/$required" ]; then
+    echo "build_backend.sh: FAIL, the studio $(cat "$out/meta/studio-commit") has no $required;" \
+      "pin a studio commit with the lock, the upload cutoff and the lock check in studio.json" >&2
+    exit 1
+  fi
+done
 (cd "$work/frontend" && npm ci --silent && npm run build --silent >/dev/null)
 node "$here/scripts/npm_licenses.mjs" "$work/frontend" >"$out/meta/npm-licenses.txt"
 # Third-party packages as uploaded before the studio's shared cutoff (platform/uploaded-prior-to, pip
 # --uploaded-prior-to): the set the studio's platform workflow tests. The studio's scripts/pip_cutoff.py checks the
-# file and that the bundle's pip is 26.0 or newer (the build fails otherwise). A studio commit from before the cutoff
-# (studio.json pinned 6755c7a when this was written) gets a warning and no cutoff.
-cutoff_args=()
-if [ -f "$work/platform/uploaded-prior-to" ]; then
-  cutoff=$("$out/python/bin/python3" -I "$work/scripts/pip_cutoff.py")
-  cutoff_args=(--uploaded-prior-to "$cutoff")
-  echo "$cutoff" >"$out/meta/uploaded-prior-to"
-else
-  echo "WARNING pip_cutoff: NOT USED, the studio $(cat "$out/meta/studio-commit") has no platform/uploaded-prior-to;" \
-    "the third-party packages are not bound to an upload cutoff" >&2
-fi
-"$out/python/bin/python3" -m pip install --quiet --root-user-action=ignore ${cutoff_args[@]+"${cutoff_args[@]}"} build
+# file and that the bundle's pip is 26.0 or newer (the build fails otherwise).
+cutoff=$("$out/python/bin/python3" -I "$work/scripts/pip_cutoff.py")
+echo "$cutoff" >"$out/meta/uploaded-prior-to"
+"$out/python/bin/python3" -m pip install --quiet --root-user-action=ignore --uploaded-prior-to "$cutoff" build
 # The build front end installs the build backend (hatchling) into its own isolated environment with that pip; it takes
 # no pip options, so the cutoff reaches it as PIP_UPLOADED_PRIOR_TO (the pip version is checked above).
-PIP_UPLOADED_PRIOR_TO=${cutoff:-} "$out/python/bin/python3" -m build --wheel --outdir "$work/dist" "$work" >/dev/null
+PIP_UPLOADED_PRIOR_TO=$cutoff "$out/python/bin/python3" -m build --wheel --outdir "$work/dist" "$work" >/dev/null
 "$out/python/bin/python3" -m pip uninstall --quiet --yes --root-user-action=ignore build pyproject_hooks packaging || true
-# The studio's lock (platform/internal.txt) fixes every internal component at its commit; the libraries then name
-# only version ranges. A studio commit from before the lock pins the components in its pyproject.toml instead.
-lock_args=()
-if [ -f "$work/platform/internal.txt" ]; then
-  lock_args=(-r "$work/platform/internal.txt")
-fi
+# The studio's lock (platform/internal.txt) fixes every internal component at its commit; the libraries name only
+# version ranges.
 "$out/python/bin/python3" -m pip install --quiet --no-warn-script-location --root-user-action=ignore \
-  ${cutoff_args[@]+"${cutoff_args[@]}"} ${lock_args[@]+"${lock_args[@]}"} "$work"/dist/*.whl
+  --uploaded-prior-to "$cutoff" -r "$work/platform/internal.txt" "$work"/dist/*.whl
 test -f "$out"/python/lib/python3.*/site-packages/nodestro_studio/static/index.html
 # Every component at exactly the repository, commit and version the studio pins, and no other commit declared: the
-# studio's scripts/lock_check.py, offline, before pip goes (a red check fails the build). A studio commit from before
-# the script (nodestro-studio scripts/lock_check.py) has nothing to run.
-if [ -f "$work/scripts/lock_check.py" ]; then
-  "$out/python/bin/python3" -I "$work/scripts/lock_check.py" --profile studio --versions "$work/platform/versions.json"
-else
-  echo "lock_check: not run, the studio $(cat "$out/meta/studio-commit") has no scripts/lock_check.py"
-fi
+# studio's scripts/lock_check.py, offline, before pip goes (a red check fails the build).
+"$out/python/bin/python3" -I "$work/scripts/lock_check.py" --profile studio --versions "$work/platform/versions.json"
 # The third-party packages actually installed, for the record (not shipped in the archive).
 "$out/python/bin/python3" -m pip freeze --disable-pip-version-check >"$out/meta/pip-freeze.txt"
 "$out/python/bin/python3" -m pip uninstall --quiet --yes --root-user-action=ignore pip
