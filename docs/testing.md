@@ -42,7 +42,9 @@ Cross-building is not a way around this:
 | Disk, time | about 4 GB (Rust build directory, npm, backend), 10 to 25 minutes the first time | same |
 
 The backend gets its own CPython 3.13 from uv (python-build-standalone); the Python on the build machine is not
-bundled. The studio and every component are fetched at the commits `studio.json` pins (public repositories).
+bundled. The studio is fetched at the commit `studio.json` pins and every component at the commit of that studio's
+lock (`platform/internal.txt`; public repositories), with the third-party packages bound to the studio's
+`platform/uploaded-prior-to`. A studio commit without the lock, the cutoff or `scripts/lock_check.py` fails the build.
 
 ### Commands
 
