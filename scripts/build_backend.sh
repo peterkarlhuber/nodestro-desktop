@@ -69,8 +69,14 @@ fi
 # no pip options, so the cutoff reaches it as PIP_UPLOADED_PRIOR_TO (the pip version is checked above).
 PIP_UPLOADED_PRIOR_TO=${cutoff:-} "$out/python/bin/python3" -m build --wheel --outdir "$work/dist" "$work" >/dev/null
 "$out/python/bin/python3" -m pip uninstall --quiet --yes --root-user-action=ignore build pyproject_hooks packaging || true
+# The studio's lock (platform/internal.txt) fixes every internal component at its commit; the libraries then name
+# only version ranges. A studio commit from before the lock pins the components in its pyproject.toml instead.
+lock_args=()
+if [ -f "$work/platform/internal.txt" ]; then
+  lock_args=(-r "$work/platform/internal.txt")
+fi
 "$out/python/bin/python3" -m pip install --quiet --no-warn-script-location --root-user-action=ignore \
-  ${cutoff_args[@]+"${cutoff_args[@]}"} "$work"/dist/*.whl
+  ${cutoff_args[@]+"${cutoff_args[@]}"} ${lock_args[@]+"${lock_args[@]}"} "$work"/dist/*.whl
 test -f "$out"/python/lib/python3.*/site-packages/nodestro_studio/static/index.html
 # Every component at exactly the repository, commit and version the studio pins, and no other commit declared: the
 # studio's scripts/lock_check.py, offline, before pip goes (a red check fails the build). A studio commit from before
