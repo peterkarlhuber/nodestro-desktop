@@ -1,4 +1,4 @@
 {
   "comment": "The studio commit the desktop backend is built from (a merge commit on nodestro-studio master; its lock, platform/internal.txt, pins every internal package).",
-  "nodestro-studio": "73d14b5158ed1f7782dfb6bbac4e1d4414d072d7"
+  "nodestro-studio": "0ede0b4213969680eab7a6d846b8054f12f3b4e5"
 }
