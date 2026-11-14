@@ -34,6 +34,47 @@ pub const SECRETS_FD_OPTION: &str = "--secrets-fd";
 pub const START_TIMEOUT: Duration = Duration::from_secs(90);
 /// How long the backend may take to shut down after SIGINT before it is killed.
 pub const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+/// The backend's exit code after the user confirmed the repair of the database's permissions: start it again
+/// (nodestro-api `recovery.RESTART_EXIT_CODE`, TABRION MIG-NOD-9).
+pub const RESTART_EXIT_CODE: i32 = 75;
+/// The backend's exit code when the diagnosis asked for the repair: start it again in recovery mode
+/// (nodestro-api `recovery.RECOVERY_EXIT_CODE`).
+pub const RECOVERY_EXIT_CODE: i32 = 76;
+/// Starts the backend in recovery mode for one start (only the confirmed repair of the database's permissions); set
+/// after [`RECOVERY_EXIT_CODE`] only, and removed from every other start (also an operator's own value).
+pub const RECOVERY_ENV: &str = "NODESTRO_RECOVERY";
+pub const RECOVERY_VALUE: &str = "database-permissions";
+/// At most this many automatic restarts within [`RESTART_WINDOW`]; a backend that keeps asking is shown as stopped.
+pub const MAX_RESTARTS: usize = 3;
+pub const RESTART_WINDOW: Duration = Duration::from_secs(120);
+
+/// How the backend is started again after it ended with `code`: `Some(false)` regular, `Some(true)` in recovery
+/// mode, `None` not at all (it stopped or failed; the window shows that).
+pub fn restart_after(code: Option<i32>) -> Option<bool> {
+    match code {
+        Some(RESTART_EXIT_CODE) => Some(false),
+        Some(RECOVERY_EXIT_CODE) => Some(true),
+        _ => None,
+    }
+}
+
+/// The automatic restarts of one window: a backend that keeps ending with a restart code is not started forever.
+#[derive(Default)]
+pub struct Restarts {
+    recent: Vec<Instant>,
+}
+
+impl Restarts {
+    /// `true` when one more restart at `now` is allowed (and counts it).
+    pub fn allow(&mut self, now: Instant) -> bool {
+        self.recent.retain(|at| now.duration_since(*at) < RESTART_WINDOW);
+        if self.recent.len() >= MAX_RESTARTS {
+            return false;
+        }
+        self.recent.push(now);
+        true
+    }
+}
 
 /// A random 256-bit secret, hex-encoded (64 characters), from the operating system's generator.
 pub fn new_secret() -> String {
@@ -297,7 +338,7 @@ pub struct Backend {
 
 impl Backend {
     /// The backend's command: the options and an environment without any secret; its standard input is the pipe.
-    fn command(command: &Launcher, port: u16, data_dir: Option<String>) -> Command {
+    fn command(command: &Launcher, port: u16, data_dir: Option<String>, recovery: bool) -> Command {
         let mut args = command.prefix.clone();
         args.extend([
             "--no-browser".to_string(),
@@ -321,6 +362,11 @@ impl Backend {
             .env_remove("NODESTRO_HOST")
             .env_remove("NODESTRO_ALLOWED_HOSTS")
             .stdin(Stdio::piped());
+        if recovery {
+            process.env(RECOVERY_ENV, RECOVERY_VALUE);
+        } else {
+            process.env_remove(RECOVERY_ENV);
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -340,19 +386,20 @@ impl Backend {
     /// Start `command` on `port` with a new secret; its output goes to `log` (a [`RotatingLog`], copied by two
     /// threads of the shell). `vault_key` seals MCP tokens (see `vault`); without it the backend keeps them for the
     /// session only. Both secrets are written to the backend's standard input (see the module comment), which is
-    /// closed right after.
+    /// closed right after. `recovery` starts it in recovery mode ([`RECOVERY_ENV`]).
     pub fn start(
         command: &Launcher,
         port: u16,
         data_dir: Option<String>,
         vault_key: Option<&str>,
         log: &Path,
+        recovery: bool,
     ) -> Result<Backend, StartError> {
         let secret = new_secret();
         let output =
             RotatingLog::open(log, LOG_ROTATE_BYTES).map_err(|error| StartError::Missing(error.to_string()))?;
         let output = Arc::new(Mutex::new(output));
-        let mut child = Self::command(command, port, data_dir)
+        let mut child = Self::command(command, port, data_dir, recovery)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -496,7 +543,7 @@ mod tests {
         fs::write(&binary, b"").unwrap();
         let launcher = backend_command(&dir.join("nodestro-desktop"), None);
         assert_eq!(launcher.ollama.as_deref(), Some(binary.as_path()));
-        let process = Backend::command(&launcher, 4711, None);
+        let process = Backend::command(&launcher, 4711, None, false);
         let value = process.get_envs().find(|(name, _)| *name == std::ffi::OsStr::new(OLLAMA_ENV)).and_then(|(_, v)| v);
         if std::env::var_os(OLLAMA_ENV).is_none() {
             assert_eq!(value, Some(binary.as_os_str()));
@@ -524,6 +571,42 @@ mod tests {
     }
 
     #[test]
+    fn the_restart_codes_start_the_backend_again() {
+        assert_eq!(restart_after(Some(RESTART_EXIT_CODE)), Some(false));
+        assert_eq!(restart_after(Some(RECOVERY_EXIT_CODE)), Some(true));
+        for other in [Some(0), Some(1), Some(2), Some(130), None] {
+            assert_eq!(restart_after(other), None, "{other:?}");
+        }
+    }
+
+    #[test]
+    fn a_backend_that_keeps_asking_is_not_restarted_forever() {
+        let mut restarts = Restarts::default();
+        let start = Instant::now();
+        for _ in 0..MAX_RESTARTS {
+            assert!(restarts.allow(start));
+        }
+        assert!(!restarts.allow(start + Duration::from_secs(1)));
+        assert!(restarts.allow(start + RESTART_WINDOW + Duration::from_secs(1)), "older restarts expire");
+    }
+
+    #[test]
+    fn recovery_mode_is_set_for_one_start_only() {
+        let launcher = backend_command(Path::new("/x"), Some("/x/nodestro".into()));
+        let value = |process: &Command| {
+            process
+                .get_envs()
+                .find(|(name, _)| *name == std::ffi::OsStr::new(RECOVERY_ENV))
+                .map(|(_, value)| value.map(|v| v.to_os_string()))
+        };
+        let recovery = Backend::command(&launcher, 4711, None, true);
+        assert_eq!(value(&recovery), Some(Some(RECOVERY_VALUE.into())));
+        // Every other start removes it, also an operator's own value.
+        let regular = Backend::command(&launcher, 4711, None, false);
+        assert_eq!(value(&regular), Some(None));
+    }
+
+    #[test]
     fn fragment_values_are_encoded() {
         assert_eq!(encode("a b/ü&#"), "a%20b%2F%C3%BC%26%23");
     }
@@ -537,6 +620,7 @@ mod tests {
             None,
             None,
             &log,
+            false,
         )
         .err()
         .unwrap();
@@ -657,6 +741,7 @@ mod tests {
             None,
             None,
             &log,
+            false,
         )
         .unwrap();
         assert_eq!(backend.wait_until_ready(Duration::from_secs(60)), Err(StartError::Exited(Some(5))));
@@ -698,7 +783,7 @@ mod tests {
     #[test]
     fn the_environment_carries_no_secret_and_stdin_is_the_handoff() {
         let launcher = backend_command(Path::new("/x"), Some("/x/nodestro".into()));
-        let process = Backend::command(&launcher, 4711, Some("/tmp/data".into()));
+        let process = Backend::command(&launcher, 4711, Some("/tmp/data".into()), false);
         let envs: Vec<_> = process.get_envs().collect();
         for name in [SECRET_ENV, VAULT_KEY_ENV, "NODESTRO_HOST", "NODESTRO_ALLOWED_HOSTS"] {
             // `None`: removed, also when the shell's own environment has it.
@@ -708,6 +793,53 @@ mod tests {
         let args: Vec<_> = process.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
         let at = args.iter().position(|arg| arg == SECRETS_FD_OPTION).unwrap();
         assert_eq!(args[at + 1], "0");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_backend_that_asks_for_recovery_is_started_again_in_recovery_mode() {
+        // The shell's sequence after the diagnosis' button (TABRION MIG-NOD-9): the backend ends with 76, the next one
+        // starts with NODESTRO_RECOVERY and ends with 75 after the repair, the one after that starts without it.
+        let dir = std::env::temp_dir().join(format!("nodestro-desktop-test-restart-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("nodestro");
+        fs::write(
+            &script,
+            "#!/bin/sh
+echo \"recovery=${NODESTRO_RECOVERY:-none}\"
+cat > /dev/null
+\
+             if [ -n \"$NODESTRO_RECOVERY\" ]; then exit 75; else exit 76; fi\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let launcher = backend_command(Path::new("/x"), Some(script.display().to_string()));
+        let mut restarts = Restarts::default();
+        let mut recovery = false;
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            let log = dir.join(format!("backend-{}.log", seen.len()));
+            let mut backend = Backend::start(&launcher, free_port().unwrap(), None, None, &log, recovery).unwrap();
+            let Err(StartError::Exited(code)) = backend.wait_until_ready(Duration::from_secs(10)) else {
+                panic!("the stand-in backend ends at once")
+            };
+            seen.push((fs::read_to_string(&log).unwrap().trim().to_string(), code));
+            match restart_after(code) {
+                Some(next) if restarts.allow(Instant::now()) => recovery = next,
+                _ => break,
+            }
+        }
+        assert_eq!(
+            seen,
+            [
+                ("recovery=none".to_string(), Some(RECOVERY_EXIT_CODE)),
+                (format!("recovery={RECOVERY_VALUE}"), Some(RESTART_EXIT_CODE)),
+                ("recovery=none".to_string(), Some(RECOVERY_EXIT_CODE)),
+            ]
+        );
+        assert!(!restarts.allow(Instant::now()), "a fourth restart in a row is refused");
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]
@@ -738,6 +870,7 @@ mod tests {
             Some("/tmp/data".into()),
             Some(&key),
             &log,
+            false,
         )
         .unwrap();
         assert_eq!(backend.wait_until_ready(Duration::from_secs(10)), Err(StartError::Exited(Some(3))));
@@ -771,6 +904,7 @@ mod tests {
             None,
             None,
             &dir.join("backend.log"),
+            false,
         )
         .unwrap();
         assert_eq!(backend.wait_until_ready(Duration::from_secs(10)), Err(StartError::Exited(Some(4))));

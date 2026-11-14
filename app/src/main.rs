@@ -101,20 +101,49 @@ fn vault_key() -> Option<String> {
     None
 }
 
-/// Start the backend, wait for it, open the launch URL; then watch it until the app quits.
+/// Run the backend until the app quits. A backend that ends with a restart code (the confirmed repair of the database's
+/// permissions, or the diagnosis asking for that repair; TABRION MIG-NOD-9) is started again while the window shows
+/// the start page, the second one in recovery mode; a backend that keeps asking is shown as stopped.
 fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
+    let mut recovery = false;
+    let mut restarts = backend::Restarts::default();
+    while let Some(next) = run_once(&window, &state, &log, recovery) {
+        if !restarts.allow(std::time::Instant::now()) {
+            // The page says it in the user's language (start.js: restart_loop); the log has the details.
+            eprintln!(
+                "nodestro-desktop: the backend asked to be started again more than {} times in {:?}; stopped",
+                backend::MAX_RESTARTS,
+                backend::RESTART_WINDOW
+            );
+            return show_error(&window, "restart_loop", "", &log);
+        }
+        eprintln!("nodestro-desktop: starting the backend again{}", if next { " in recovery mode" } else { "" });
+        let _ = window.navigate(local_page("restart=1"));
+        recovery = next;
+    }
+}
+
+/// Start the backend, wait for it, open the launch URL; then watch it until the app quits. `Some(recovery)` when it
+/// ended with a restart code and is to be started again (in recovery mode or not).
+fn run_once(window: &WebviewWindow, state: &Arc<State>, log: &std::path::Path, recovery: bool) -> Option<bool> {
     let exe = std::env::current_exe().unwrap_or_default();
     let command = backend::backend_command(&exe, std::env::var(backend::BACKEND_ENV).ok());
     let data_dir = std::env::var("NODESTRO_DATA_DIR").ok();
     let started = std::time::Instant::now();
     let port = match backend::free_port() {
         Ok(port) => port,
-        Err(error) => return show_error(&window, "start_failed", &error.to_string(), &log),
+        Err(error) => {
+            show_error(window, "start_failed", &error.to_string(), log);
+            return None;
+        }
     };
     let vault_key = vault_key();
-    let running = match Backend::start(&command, port, data_dir, vault_key.as_deref(), &log) {
+    let running = match Backend::start(&command, port, data_dir, vault_key.as_deref(), log, recovery) {
         Ok(running) => running,
-        Err(error) => return show_error(&window, "start_failed", &error.detail(), &log),
+        Err(error) => {
+            show_error(window, "start_failed", &error.detail(), log);
+            return None;
+        }
     };
     let launch = running.launch_url();
     let origin = running.origin();
@@ -128,13 +157,14 @@ fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
             if let Some(mut child) = state.child.lock().unwrap().take() {
                 backend::stop(&mut child, STOP_TIMEOUT);
             }
-            return;
+            return None;
         }
         if let Some(child) = state.child.lock().unwrap().as_mut() {
             if let Ok(Some(status)) = child.try_wait() {
-                finish_log(&state);
+                finish_log(state);
                 let detail = backend::StartError::Exited(status.code()).detail();
-                return show_error(&window, "start_failed", &detail, &log);
+                show_error(window, "start_failed", &detail, log);
+                return None;
             }
         }
         if backend::healthy(port) {
@@ -144,7 +174,8 @@ fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
             if let Some(mut child) = state.child.lock().unwrap().take() {
                 backend::stop(&mut child, STOP_TIMEOUT);
             }
-            return show_error(&window, "start_failed", &backend::StartError::Timeout.detail(), &log);
+            show_error(window, "start_failed", &backend::StartError::Timeout.detail(), log);
+            return None;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -154,17 +185,21 @@ fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
     loop {
         std::thread::sleep(Duration::from_millis(500));
         if state.stopping.load(Ordering::SeqCst) {
-            return;
+            return None;
         }
         let mut guard = state.child.lock().unwrap();
-        let Some(child) = guard.as_mut() else { return };
+        let child = guard.as_mut()?;
         if let Ok(Some(status)) = child.try_wait() {
             guard.take();
             drop(guard);
             *state.origin.lock().unwrap() = None;
-            finish_log(&state);
+            finish_log(state);
+            if let Some(next) = backend::restart_after(status.code()) {
+                return Some(next);
+            }
             let detail = backend::StartError::Exited(status.code()).detail();
-            return show_error(&window, "stopped", &detail, &log);
+            show_error(window, "stopped", &detail, log);
+            return None;
         }
     }
 }
