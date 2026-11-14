@@ -34,7 +34,7 @@ cp "$here/LICENSE" "$stage/nodestro/LICENSES/LICENSE-nodestro.txt"
 python3 "$here/scripts/cargo_licenses.py" "$here/app/Cargo.toml" >"$stage/nodestro/LICENSES/THIRD-PARTY-rust.txt"
 cp "$backend/meta/npm-licenses.txt" "$stage/nodestro/LICENSES/THIRD-PARTY-npm.txt"
 cat >"$stage/nodestro/LICENSES/README.txt" <<'TEXT'
-Nodestro is MIT licensed (LICENSE-nodestro.txt). It contains third-party software under its own licenses:
+Nodestro is proprietary software (LICENSE-nodestro.txt). It contains third-party software under its own licenses:
 - THIRD-PARTY-rust.txt: the Rust crates of the window (nodestro-desktop);
 - THIRD-PARTY-npm.txt: the npm packages built into the studio interface;
 - backend/ollama/LICENSE: Ollama (MIT), the local model runtime; the licenses of the libraries it contains
