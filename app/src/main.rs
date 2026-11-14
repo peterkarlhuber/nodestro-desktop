@@ -109,8 +109,13 @@ fn run_backend(window: WebviewWindow, state: Arc<State>, log: PathBuf) {
     let mut restarts = backend::Restarts::default();
     while let Some(next) = run_once(&window, &state, &log, recovery) {
         if !restarts.allow(std::time::Instant::now()) {
-            let detail = format!("the backend asked to be started again more than {} times", backend::MAX_RESTARTS);
-            return show_error(&window, "stopped", &detail, &log);
+            // The page says it in the user's language (start.js: restart_loop); the log has the details.
+            eprintln!(
+                "nodestro-desktop: the backend asked to be started again more than {} times in {:?}; stopped",
+                backend::MAX_RESTARTS,
+                backend::RESTART_WINDOW
+            );
+            return show_error(&window, "restart_loop", "", &log);
         }
         eprintln!("nodestro-desktop: starting the backend again{}", if next { " in recovery mode" } else { "" });
         let _ = window.navigate(local_page("restart=1"));
