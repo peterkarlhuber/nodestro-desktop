@@ -10,13 +10,14 @@
 | Priority | Count |
 |---|---|
 | P0 Critical | 0 |
-| P1 High | 1 |
+| P1 High | 2 |
 | P2 Medium | 3 |
 | P3 Low | 7 |
 | P4 Optional | 1 |
 
-**Release blockers:** DSK-001 (no Go for the next preview without a new candidate and Go/No-Go). Every other entry
-is not a release blocker.
+**Release blockers:** DSK-001 (no Go for the next preview without a new candidate and Go/No-Go) and DSK-021 (the
+Windows/OneDrive check of the database guard, before the first desktop release). Every other entry is not a release
+blocker.
 
 The Linux x86_64 shell, bundle, built-in sandbox integration and real-system tests (Ubuntu 24.04, Debian 13) are
 in place. The frozen candidate `v0.2.0-preview.1` stays NO-GO (owner decision 2026-10-31) and is not published; since
@@ -51,6 +52,18 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
 - **Next step:** From the current pins (`studio.json`; studio `9d24565` since 2026-11-08), rebuild with `release.yml`, run
   `systems.yml`, write a new Go/No-Go against the Docker-first behavior, update the README status. Publishing needs
   the owner's explicit approval.
+
+### DSK-021 · Windows: the database guard on reparse points and OneDrive (release gate)
+
+- **Priority:** P1 High · **Status:** Open · **Refs:** nodestro-runtime RT-080 part (3), runtime #171 and #181,
+  planning folder `reviews/rt171-conditions-recheck.md` (condition N3), owner decision 2026-11-14 18:52Z
+- **What:** binding gate before the **first desktop release** (owner decision, not waivable by this file): on a real
+  Windows machine, the runtime's SQLite guard (`storage.unsafe_file`) must refuse a database or `-wal`/`-shm`/`-journal`
+  file that is a symbolic link, a junction or another reparse point, and must behave correctly in a OneDrive-synced
+  data folder (files-on-demand placeholders, sync locks): refuse with the documented reason or work, never follow the
+  link, never change the database on refusal. The POSIX behavior is tested in CI; Windows has never been run.
+- **Next step:** with the first Windows build (DSK-004, docs/testing.md "Windows"), run the cases above on Windows 11
+  with OneDrive on and record the result here and in RT-080. No release before this entry is closed.
 
 ## Security
 
@@ -191,6 +204,7 @@ None known.
 | (pointer) | nodestro-studio | ST-052 (Dependabot policy: weekly groups, cooldown, manual merge; auto-merge prerequisites) | Full entry in studio |
 | DSK-001 | nodestro-studio | ST-027 (`platform/versions.json` `products` still names the withdrawn candidate), ST-018 (RELEASES.md and IMPLEMENTATION_STATUS.md not updated after the sandbox) | Update together |
 | (pointer) | nodestro-server | `scripts/` (source copies of the release scripts and `pin_distance.py`) | `scripts/check_server_copies.py` compares them with server master in CI; change there first |
+| DSK-021 | nodestro-runtime | RT-080 part (3) (Windows reparse points, OneDrive) | Same check; close both together, before the first desktop release |
 | DSK-020 | nodestro-runtime, orkexa | `local_service.py`, `orkexa.local.install` (same Ollama pin, checked by `fetch_ollama.py --check-against`) | Keep the pins equal |
 | DSK-010 | nodestro-runtime | RT-018 (built-in sandbox `TESTED_SYSTEMS`) | New systems must be validated there first |
 

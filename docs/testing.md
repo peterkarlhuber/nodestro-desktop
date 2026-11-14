@@ -119,9 +119,13 @@ git clone --filter=blob:none https://github.com/peterkarlhuber/nodestro-studio.g
 git -C "$work\studio" checkout $studio
 Push-Location "$work\studio\frontend"; npm ci; npm run build; Pop-Location
 $python = "$work\nodestro\backend\python\python.exe"
-& $python -m pip install build
+# The studio's cutoff check refuses a pip older than 26.1 (Nodestro's pip floor) with what to do
+$cutoff = & $python -I "$work\studio\scripts\pip_cutoff.py"; if ($LASTEXITCODE -ne 0) { throw "pip_cutoff failed" }
+& $python -m pip install --uploaded-prior-to $cutoff build
+$env:PIP_UPLOADED_PRIOR_TO = $cutoff
 & $python -m build --wheel --outdir "$work\dist" "$work\studio"
-& $python -m pip install (Get-ChildItem "$work\dist\*.whl").FullName
+& $python -m pip install --uploaded-prior-to $cutoff -r "$work\studio\platform\internal.txt" `
+  (Get-ChildItem "$work\dist\*.whl").FullName
 & $python -I -c "import nodestro_api.launch, nodestro_studio.app"
 Copy-Item app\target\release\nodestro-desktop.exe "$work\nodestro\"
 $env:NODESTRO_DATA_DIR = "$work\data-app"; $env:NODESTRO_DESKTOP_QUIT_AFTER_MS = "30000"

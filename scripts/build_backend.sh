@@ -64,7 +64,7 @@ done
 node "$here/scripts/npm_licenses.mjs" "$work/frontend" >"$out/meta/npm-licenses.txt"
 # Third-party packages as uploaded before the studio's shared cutoff (platform/uploaded-prior-to, pip
 # --uploaded-prior-to): the set the studio's platform workflow tests. The studio's scripts/pip_cutoff.py checks the
-# file and that the bundle's pip is 26.0 or newer (the build fails otherwise).
+# file and that the bundle's pip is 26.1 or newer, Nodestro's pip floor (the build fails otherwise, with what to do).
 cutoff=$("$out/python/bin/python3" -I "$work/scripts/pip_cutoff.py")
 echo "$cutoff" >"$out/meta/uploaded-prior-to"
 "$out/python/bin/python3" -m pip install --quiet --root-user-action=ignore --uploaded-prior-to "$cutoff" build
