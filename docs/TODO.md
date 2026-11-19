@@ -49,7 +49,7 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
   used there, [docs/testing.md](testing.md)). No new candidate has been built or evaluated. The README still names
   `v0.2.0-preview.1` as the (unpublished) candidate, and nodestro-studio `platform/versions.json` `products` still
   lists it (ST-027).
-- **Next step:** From the current pins (`studio.json`; studio `9d24565` since 2026-11-08), rebuild with `release.yml`, run
+- **Next step:** From the current pins (`studio.json`; studio `ff0df34` since 2026-11-19), rebuild with `release.yml`, run
   `systems.yml`, write a new Go/No-Go against the Docker-first behavior, update the README status. Publishing needs
   the owner's explicit approval.
 
@@ -143,7 +143,12 @@ None known. (Each tool call starts a new interpreter, about 0.13 to 0.19 s; docu
 - **Priority:** P3 Low · **Status:** Open · **Refs:** Bedrock deployment analysis section 6, `spike/README.md`
 - **What:** The studio's browser suites have never run in the WebKitGTK window itself (only in Playwright WebKit).
   Since 2026-11-06 the smoke test checks that the bundled backend reports Amazon Bedrock as `not_configured` and
-  contacts no AWS host (all outgoing requests go through a logging proxy).
+  contacts no AWS host (all outgoing requests go through a logging proxy). Since 2026-11-19 it also restarts the
+  bundled backend with and without a vault key (`provider_key_check`, security fix N-03): provider keys are sealed on
+  start and on entry, usable after a restart, missing without the key, and in no file of the data directory in plain
+  text. It hands the key over through the pipe like the shell; the keychain itself is covered by `cargo test --
+  --ignored` with GNOME Keyring in CI. These internal tests do not replace the independent review (nodestro-runtime
+  RT-081).
 - **Next step:** Consider one WebKitGTK run of the studio smoke suite (for example through WebKitGTK's WebDriver).
 
 ## Platform coverage
