@@ -34,15 +34,21 @@ signed builds and no installer. `spike/` holds the packaging spike (plan PR-5) a
 4. Closing the window stops the backend with SIGINT (the application shuts down cleanly), killed after 10 s. If the
    backend ends on its own, the window says so and names the log file.
 
-**Tokens of connected MCP services** are sealed with a key from the operating system's keychain (ADR-0007 D-3; Secret
-Service such as GNOME Keyring or KWallet on Linux). The first start creates the key (32 random bytes, entry
+**Tokens of connected MCP services, secrets of service connections and provider API keys** are sealed with a key
+from the operating system's keychain (ADR-0007 D-3; provider keys since the security fix N-03; Secret Service such as
+GNOME Keyring or KWallet on Linux). Provider keys that an earlier release stored in plain text are sealed when the
+backend starts with the key. The first start creates the key (32 random bytes, entry
 "Nodestro" / `mcp-token-vault-key`); the shell hands it to the backend in the same pipe as the launch secret, never
 in its environment, on the command line, in a file or in a log (`app/src/vault.rs`). Without a usable keychain within 15 s (none
 running, access refused, an unlock prompt left open) the backend gets no key and keeps tokens for the current session
-only; there is no plain-text fallback. A `NODESTRO_VAULT_KEY` set by the operator for the shell takes precedence (and is handed over through the pipe as
+only; there is no plain-text fallback for tokens and connection secrets. Provider keys then stay as an earlier release
+stored them (plain text in the user-only database file), and a sealed provider key counts as missing until the key is
+available again; it is never revealed. A `NODESTRO_VAULT_KEY` set by the operator for the shell takes precedence (and is handed over through the pipe as
 well). If the keychain
 entry is deleted, stored tokens become unreadable and have to be entered again. The packaged-app tests on Ubuntu 24.04 and Debian 13
-check both cases: without a keychain (session only) and with an unlocked GNOME Keyring (key stored once, reused).
+check both cases: without a keychain (session only) and with an unlocked GNOME Keyring (key stored once, reused). The
+smoke test restarts the bundled backend with and without a key: provider keys are sealed on start and on entry, usable
+after a restart, missing without the key, and in no file of the data directory in plain text.
 
 Data stays in `~/.nodestro` (or `NODESTRO_DATA_DIR`), shared with the `nodestro` command; only one of them can use a
 data directory at a time. The backend log is `~/.local/share/org.nodestro.desktop/logs/backend.log`, readable by the

@@ -53,6 +53,99 @@ print(f"bedrock check passed: not_configured, no AWS call (other outgoing reques
 PY
 }
 
+# Provider API keys across restarts (security fix N-03, nodestro-runtime #191): the bundled backend gets a vault key
+# through the same handoff as the window (the shell's keychain part is tested by `cargo test -- --ignored` in CI).
+# 1. Started without a key, as an earlier release, it stores a key in plain text. 2. Started with the key, it seals the
+# stored key and a newly entered one; no file in the data directory holds either key afterwards. 3. Started again with
+# the same key, both keys are still stored and usable. 4. Started without the key, they count as missing and are not
+# revealed. Settings never show a key.
+provider_key_check() {
+  local python=/opt/nodestro/backend/python/bin/python3 data key old new
+  [ -n "${NODESTRO_APP:-}" ] && python="$(dirname "$NODESTRO_APP")/backend/python/bin/python3"
+  data=$(mktemp -d)
+  key=$("$python" -I -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')
+  old="sk-ant-smoke-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  new="sk-openai-smoke-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  # start_backend <vault-key-json> <name>: starts the bundled backend, signs in with its launch secret and leaves
+  # $port, $backend and $cookies set.
+  start_backend() {
+    local secret waited=0
+    secret=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    port=$("$python" -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+    cookies=$(mktemp)
+    printf '{"launch_secret":"%s","vault_key":%s}' "$secret" "$1" | env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY \
+      HOME="$data" "$python" -I -m nodestro_studio --no-browser --host 127.0.0.1 --port "$port" --secrets-fd 0 \
+      --data-dir "$data/nodestro" > "$data/backend-$2.log" 2>&1 &
+    backend=$!
+    until curl -fs "http://127.0.0.1:$port/api/health" >/dev/null; do
+      sleep 0.5; waited=$((waited + 1))
+      if [ "$waited" -gt 120 ]; then echo "provider key check: backend not ready ($2)"; cat "$data/backend-$2.log"; return 1; fi
+    done
+    curl -fs -c "$cookies" -o /dev/null "http://127.0.0.1:$port/api/launch?token=$secret"
+  }
+  stop_backend() { kill -INT "$backend"; wait "$backend" || true; }
+  put_key() {
+    curl -fs -b "$cookies" -o /dev/null -X PUT -H "Origin: http://127.0.0.1:$port" -H "Content-Type: application/json" \
+      --data "{\"providers\":{\"$1\":{\"api_key\":\"$2\"}}}" "http://127.0.0.1:$port/api/settings"
+  }
+  # stored <name> <expected anthropic> <expected openai>: what Settings says about the two keys.
+  stored() {
+    curl -fs -b "$cookies" "http://127.0.0.1:$port/api/settings" > "$data/settings-$1.json"
+    "$python" -I - "$data/settings-$1.json" "$1" "$2" "$3" "$old" "$new" <<'PY'
+import json, sys
+path, step, anthropic, openai, old, new = sys.argv[1:]
+text = open(path).read()
+assert old not in text and new not in text, f"{step}: Settings show a key"
+providers = {item["id"]: item for item in json.loads(text)["providers"]}
+got = (str(providers["anthropic"]["key_stored"]).lower(), str(providers["openai"]["key_stored"]).lower())
+assert got == (anthropic, openai), f"{step}: key_stored is {got}, expected {(anthropic, openai)}"
+PY
+  }
+  # nowhere <name>: neither key is readable in any file of the data directory (database, write-ahead log, backups).
+  nowhere() {
+    if grep -rlF -e "$old" -e "$new" "$data/nodestro"; then echo "provider key check: a key in plain text ($1)"; return 1; fi
+  }
+
+  start_backend null plain
+  put_key anthropic "$old"
+  stored plain true false
+  stop_backend
+  grep -rqF "$old" "$data/nodestro" || { echo "provider key check: the plain start did not store the key"; return 1; }
+
+  start_backend "\"$key\"" sealed
+  stored migrated true false
+  put_key openai "$new"
+  stored sealed true true
+  stop_backend
+  nowhere sealed
+
+  start_backend "\"$key\"" restarted
+  stored restarted true true
+  stop_backend
+  # The runtime can use the keys again: the bundled interpreter reads them with the same key (after the backend
+  # stopped, because a data directory serves one process at a time).
+  "$python" -I - "$data/nodestro" "$key" "$old" "$new" <<'PY'
+import sys
+from nodestro_runtime.workspace import Workspace
+data, key, old, new = sys.argv[1:]
+workspace = Workspace(data, integrations=[], vault_key=key)
+try:
+    assert workspace.provider_settings("anthropic").get("api_key") == old, "the migrated key is not usable"
+    assert workspace.provider_settings("openai").get("api_key") == new, "the sealed key is not usable"
+finally:
+    workspace.close()
+PY
+  nowhere restarted
+
+  start_backend null without-key
+  stored without-key false false
+  stop_backend
+  nowhere without-key
+  if grep -q Traceback "$data"/backend-*.log; then echo "provider key check: a backend logged a traceback"; return 1; fi
+  if grep -qF -e "$old" -e "$new" -e "$key" "$data"/backend-*.log; then echo "provider key check: a key in a log"; return 1; fi
+  echo "provider key check passed: sealed on start and on entry, usable after a restart, missing without the key"
+}
+
 # The managed Ollama ends with a killed backend (DSK-022): the bundled backend starts the bundled Ollama on launch
 # (`ollama serve`, in a session of its own); after SIGKILL of the backend, Orkexa's lifeline watcher must stop that
 # server within seconds. Runs once the bundled Orkexa has the lifeline (orkexa 31e00cf, through the runtime and studio
@@ -131,6 +224,7 @@ if [ "${1:-}" = as-user ]; then
   if grep -q Traceback "$log"; then echo "the backend logged a traceback"; exit 1; fi
   grep -q "Application shutdown complete" "$log"
   bedrock_check
+  provider_key_check
   kill_check
   exit 0
 fi

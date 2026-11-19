@@ -1,6 +1,8 @@
-//! The key that seals MCP tokens on the desktop (ADR-0007 decision D-3).
+//! The key that seals secrets on the desktop (ADR-0007 decision D-3; provider API keys since the security fix N-03).
 //!
-//! The backend encrypts the tokens of connected MCP services with this key (32 random bytes, base64). The key lives in
+//! The backend encrypts the tokens of connected MCP services, the secrets of service connections and provider API keys
+//! with this key (32 random bytes, base64). The keychain entry keeps its first name (`mcp-token-vault-key`) so that
+//! existing installations find their key. The key lives in
 //! the operating system's keychain (Secret Service on Linux, Keychain on macOS, Credential Manager on Windows); the
 //! first start creates it. It is handed to the backend through the handoff pipe on its standard input (see
 //! `backend`), never in its environment or on the command line, and never written to a file or a log.
