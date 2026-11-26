@@ -67,6 +67,11 @@ Statuses: `Open`, `In progress` (PR linked), `Blocked` (names the blocker), `Nee
 
 ## Security
 
+RustSec: the CI and nightly job `audit` (`cargo audit` on `app/Cargo.lock`) fails on any vulnerability. The nightly was
+red on 2026-11-23..26 for `url` 2.5.8 (RUSTSEC-2026-0592) and, from 2026-11-25, `cookie` 0.18.2 (RUSTSEC-2026-0594);
+fixed 2026-11-26 by `url` 2.5.9, `form_urlencoded` 1.2.3 and `cookie` 0.18.3 (lock file only, compatible patch
+releases). The 7 warnings (unmaintained/unsound, mostly the GTK3 and zbus 4 stack under Tauri) stay allowed.
+
 ### DSK-003 · Code signing and notarization
 
 - **Priority:** P2 Medium · **Status:** Needs decision · **Refs:** README "Restrictions of this preview", backend audit D-09
