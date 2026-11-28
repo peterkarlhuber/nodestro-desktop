@@ -117,7 +117,12 @@ New-Item -ItemType Directory -Force "$work\nodestro\backend" | Out-Null
 Move-Item $py.FullName "$work\nodestro\backend\python"
 git clone --filter=blob:none https://github.com/peterkarlhuber/nodestro-studio.git "$work\studio"
 git -C "$work\studio" checkout $studio
-Push-Location "$work\studio\frontend"; npm ci; npm run build; Pop-Location
+Push-Location "$work\studio\frontend"
+# The vendored nodestro-ui tarballs against their SHA-256 pins, before and after npm ci (as scripts/build_backend.sh)
+if (Test-Path vendor) { node scripts/check-vendor.mjs; if ($LASTEXITCODE -ne 0) { throw "check-vendor failed" } }
+npm ci
+if (Test-Path vendor) { node scripts/check-vendor.mjs --installed; if ($LASTEXITCODE -ne 0) { throw "check-vendor failed" } }
+npm run build; Pop-Location
 $python = "$work\nodestro\backend\python\python.exe"
 # The studio's cutoff check refuses a pip older than 26.1 (Nodestro's pip floor) with what to do
 $cutoff = & $python -I "$work\studio\scripts\pip_cutoff.py"; if ($LASTEXITCODE -ne 0) { throw "pip_cutoff failed" }

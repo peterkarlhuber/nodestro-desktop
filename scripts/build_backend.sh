@@ -60,7 +60,16 @@ for required in platform/uploaded-prior-to scripts/pip_cutoff.py platform/intern
     exit 1
   fi
 done
-(cd "$work/frontend" && npm ci --silent && npm run build --silent >/dev/null)
+# The studio's vendored nodestro-ui tarballs are checked against their SHA-256 pins before npm ci and the installed
+# packages against them after it (frontend/scripts/check-vendor.mjs), as the studio's own workflows do. A studio
+# with vendor/ but without the check fails here.
+(
+  cd "$work/frontend"
+  if [ -d vendor ]; then node scripts/check-vendor.mjs >/dev/null; fi
+  npm ci --silent
+  if [ -d vendor ]; then node scripts/check-vendor.mjs --installed >/dev/null; fi
+  npm run build --silent >/dev/null
+)
 node "$here/scripts/npm_licenses.mjs" "$work/frontend" >"$out/meta/npm-licenses.txt"
 # Third-party packages as uploaded before the studio's shared cutoff (platform/uploaded-prior-to, pip
 # --uploaded-prior-to): the set the studio's platform workflow tests. The studio's scripts/pip_cutoff.py checks the
